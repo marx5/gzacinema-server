@@ -1,0 +1,559 @@
+{
+    "info": {
+        "_postman_id": "7e1cbec1-9ca3-4fb5-a7a3-9d276f0a27f6",
+        "name": "Gzacinema API",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+        "description": "Collection API Gzacinema, dong bo theo code hien tai."
+    },
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:5000"
+        },
+        {
+            "key": "accessToken",
+            "value": ""
+        },
+        {
+            "key": "movieId",
+            "value": ""
+        },
+        {
+            "key": "cinemaId",
+            "value": ""
+        },
+        {
+            "key": "roomId",
+            "value": ""
+        },
+        {
+            "key": "showtimeId",
+            "value": ""
+        },
+        {
+            "key": "seatId",
+            "value": ""
+        },
+        {
+            "key": "ticketId",
+            "value": ""
+        }
+    ],
+    "item": [
+        {
+            "name": "Health",
+            "item": [
+                {
+                    "name": "GET /api",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": "{{baseUrl}}/api"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Auth",
+            "item": [
+                {
+                    "name": "POST /api/auth/register",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"123456\"\n}"
+                        },
+                        "url": "{{baseUrl}}/api/auth/register"
+                    }
+                },
+                {
+                    "name": "POST /api/auth/login",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('Status code la 200', function () {",
+                                    "  pm.response.to.have.status(200);",
+                                    "});",
+                                    "",
+                                    "var jsonData = {};",
+                                    "try { jsonData = pm.response.json(); } catch (e) {}",
+                                    "if (jsonData && jsonData.accessToken) {",
+                                    "  pm.collectionVariables.set('accessToken', jsonData.accessToken);",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"123456\"\n}"
+                        },
+                        "url": "{{baseUrl}}/api/auth/login"
+                    }
+                },
+                {
+                    "name": "POST /api/auth/logout",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": "{{baseUrl}}/api/auth/logout"
+                    }
+                },
+                {
+                    "name": "POST /api/auth/refresh",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": "{{baseUrl}}/api/auth/refresh"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "User",
+            "item": [
+                {
+                    "name": "GET /api/users/me",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/users/me"
+                    }
+                },
+                {
+                    "name": "GET /api/users/history",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/users/history"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Cinema",
+            "item": [
+                {
+                    "name": "POST /api/cinemas",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"CGV District 1\",\n  \"address\": \"123 Main St\"\n}"
+                        },
+                        "url": "{{baseUrl}}/api/cinemas"
+                    }
+                },
+                {
+                    "name": "GET /api/cinemas",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": "{{baseUrl}}/api/cinemas"
+                    }
+                },
+                {
+                    "name": "GET /api/cinemas/:id",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": "{{baseUrl}}/api/cinemas/{{cinemaId}}"
+                    }
+                },
+                {
+                    "name": "PUT /api/cinemas/:id",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/cinemas/{{cinemaId}}",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"CGV District 1 - Updated\",\n  \"address\": \"456 Main St\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "DELETE /api/cinemas/:id",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/cinemas/{{cinemaId}}"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Movie",
+            "item": [
+                {
+                    "name": "POST /api/movies",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"title\": \"Dune: Part Two\",\n  \"description\": \"Epic sci-fi thriller\",\n  \"duration_minutes\": 155,\n  \"release_date\": \"2026-03-24\"\n}"
+                        },
+                        "url": "{{baseUrl}}/api/movies"
+                    }
+                },
+                {
+                    "name": "GET /api/movies",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": "{{baseUrl}}/api/movies"
+                    }
+                },
+                {
+                    "name": "GET /api/movies?status=showing",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": "{{baseUrl}}/api/movies?status=showing"
+                    }
+                },
+                {
+                    "name": "GET /api/movies/:id",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": "{{baseUrl}}/api/movies/{{movieId}}"
+                    }
+                },
+                {
+                    "name": "GET /api/movies/:movieId/showtimes",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": "{{baseUrl}}/api/movies/{{movieId}}/showtimes"
+                    }
+                },
+                {
+                    "name": "PUT /api/movies/:id",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/movies/{{movieId}}",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"title\": \"Dune: Part Two (Updated)\",\n  \"description\": \"Updated description\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "DELETE /api/movies/:id",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/movies/{{movieId}}"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Room",
+            "item": [
+                {
+                    "name": "POST /api/rooms/:cinemaId",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Room 1\",\n  \"rowCount\": 5,\n  \"colCount\": 10\n}"
+                        },
+                        "url": "{{baseUrl}}/api/rooms/{{cinemaId}}"
+                    }
+                },
+                {
+                    "name": "GET /api/rooms/cinema/:cinemaId",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/rooms/cinema/{{cinemaId}}"
+                    }
+                },
+                {
+                    "name": "PUT /api/rooms/:roomId",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/rooms/{{roomId}}",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Room 1 - Updated\",\n  \"rowCount\": 6,\n  \"colCount\": 10\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "DELETE /api/rooms/:roomId",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/rooms/{{roomId}}"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Showtime",
+            "item": [
+                {
+                    "name": "POST /api/showtimes",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"movie_id\": \"{{movieId}}\",\n  \"room_id\": \"{{roomId}}\",\n  \"start_time\": \"2026-03-24T09:00:00.000Z\",\n  \"base_price\": 70000\n}"
+                        },
+                        "url": "{{baseUrl}}/api/showtimes"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Booking",
+            "item": [
+                {
+                    "name": "GET /api/bookings/showtime/:showtimeId/seats",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/bookings/showtime/{{showtimeId}}/seats"
+                    }
+                },
+                {
+                    "name": "POST /api/bookings/hold",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"showtimeId\": \"{{showtimeId}}\",\n  \"seatId\": \"{{seatId}}\"\n}"
+                        },
+                        "url": "{{baseUrl}}/api/bookings/hold"
+                    }
+                },
+                {
+                    "name": "POST /api/bookings/unhold",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/bookings/unhold",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"showtimeId\": \"{{showtimeId}}\",\n  \"seatId\": \"{{seatId}}\"\n}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Payment",
+            "item": [
+                {
+                    "name": "POST /api/payments/create-payment-url",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"showtimeId\": \"{{showtimeId}}\",\n  \"seatIds\": [\"{{seatId}}\"]\n}"
+                        },
+                        "url": "{{baseUrl}}/api/payments/create-payment-url"
+                    }
+                },
+                {
+                    "name": "GET /api/payments/vnpay_ipn",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": "{{baseUrl}}/api/payments/vnpay_ipn?vnp_TxnRef=booking-id&vnp_ResponseCode=00&vnp_SecureHash=dummy"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Ticket",
+            "item": [
+                {
+                    "name": "PUT /api/tickets/:id/checkin",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/tickets/{{ticketId}}/checkin"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Statistics",
+            "item": [
+                {
+                    "name": "GET /api/statistics/dashboard",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/statistics/dashboard"
+                    }
+                }
+            ]
+        }
+    ]
+}
