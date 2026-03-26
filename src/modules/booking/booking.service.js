@@ -1,6 +1,8 @@
-const { sequelize, Showtime, Room, Seat, Ticket, Booking } = require('../../models');
+const { sequelize, Showtime, Room, Seat, Ticket, Booking, User, Movie } = require('../../models');
 const redis = require('../../config/redis');
 const { or } = require('sequelize');
+const AppError = require('../../core/utils/AppError');
+const { raw } = require('express');
 
 const getShowtimeSeats = async (showtimeId, userId) => {
     const showtime = await Showtime.findByPk(showtimeId, {
@@ -10,7 +12,7 @@ const getShowtimeSeats = async (showtimeId, userId) => {
     })
 
     if (!showtime) {
-        throw new Error('Showtime not found');
+        throw new AppError('Showtime not found', 404);
     }
 
     const seats = await Seat.findAll({
@@ -21,14 +23,17 @@ const getShowtimeSeats = async (showtimeId, userId) => {
     })
 
     const soldTickets = await Ticket.findAll({
+        attributes: ['seat_id'],
         include: [{
             model: require('../../models').Booking,
             as: 'booking',
+            attributes: [],
             where: {
                 showtime_id: showtimeId,
                 status: 'paid'
             }
-        }]
+        }],
+        raw: true
     })
 
     const soldSeatIds = soldTickets.map(ticket => ticket.seat_id);
@@ -72,38 +77,9 @@ const getShowtimeSeats = async (showtimeId, userId) => {
 }
 
 const holdSeat = async (showtimeId, seatId, userId) => {
-    const showtime = await Showtime.findByPk(showtimeId);
-
-    if (!showtime) {
-        throw new Error('Showtime not found');
-    }
-
-    const seat = await Seat.findByPk(seatId);
-
-    if (!seat || seat.room_id !== showtime.room_id) {
-        throw new Error('Seat not found');
-    }
-
-    const isSold = await Ticket.findOne({
-        where: {
-            seat_id: seatId
-        },
-        include: [{
-            model: Booking,
-            as: 'booking',
-            where: {
-                showtime_id: showtimeId,
-                status: 'paid'
-            }
-        }]
-    })
-    if (isSold) {
-        throw new Error('Seat already sold');
-    }
-
     const redisKey = `hold_seat:${showtimeId}:${seatId}`;
-    const existingHold = await redis.get(redisKey);
 
+    const existingHold = await redis.get(redisKey);
     if (existingHold) {
         if (existingHold === userId) {
             await redis.expire(redisKey, 300);
@@ -113,13 +89,37 @@ const holdSeat = async (showtimeId, seatId, userId) => {
                 seat_id: seatId,
                 expire_time: 300
             };
-        }
-        else {
-            throw new Error('Seat is currently held by another user');
+        } else {
+            throw new AppError('This seat is no longer available', 400);
         }
     }
 
-    await redis.set(redisKey, userId, 'EX', 300);
+    const showtime = await Showtime.findByPk(showtimeId);
+    if (!showtime) throw new AppError('Showtime not found', 404);
+
+    const seat = await Seat.findByPk(seatId);
+    if (!seat || seat.room_id !== showtime.room_id) {
+        throw new AppError('Seat not found or invalid room', 404);
+    }
+
+    const isSold = await Ticket.findOne({
+        where: { seat_id: seatId },
+        include: [{
+            model: Booking,
+            as: 'booking',
+            where: {
+                showtime_id: showtimeId,
+                status: 'paid'
+            }
+        }]
+    });
+
+    if (isSold) throw new AppError('This seat is no longer available', 400);
+
+    const setNxResult = await redis.set(redisKey, userId, 'EX', 300, 'NX');
+    if (!setNxResult) {
+        throw new AppError('This seat is no longer available', 400);
+    }
 
     return {
         message: 'Seat held successfully, hold will expire in 5 minutes',
@@ -142,8 +142,62 @@ const unholdSeat = async (showtimeId, seatId, userId) => {
     };
 }
 
+const getAllBookingsAdmin = async (query) => {
+    const page = parseInt(query.page, 10) || 1;
+    const limit = parseInt(query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+
+    let condition = {};
+    if (query.status) condition.status = query.status;
+
+    const { count, rows } = await Booking.findAndCountAll({
+        where: condition,
+        order: [['createdAt', 'DESC']],
+        limit,
+        offset,
+        distinct: true,
+        include: [
+            {
+                model: User,
+                as: 'user',
+                attributes: ['id', 'email', 'full_name', 'phone_number']
+            },
+            {
+                model: Showtime,
+                as: 'showtime',
+                attributes: ['start_time'],
+                include: [
+                    {
+                        model: Movie,
+                        as: 'movie',
+                        attributes: ['title']
+                    },
+                    {
+                        model: Room,
+                        as: 'room',
+                        attributes: ['name']
+                    }
+                ]
+            },
+            {
+                model: Ticket,
+                as: 'tickets',
+                attributes: ['id', 'price', 'status']
+            }
+        ]
+    });
+
+    return {
+        total_items: count,
+        total_pages: Math.ceil(count / limit),
+        current_page: page,
+        bookings: rows
+    };
+};
+
 module.exports = {
     getShowtimeSeats,
     holdSeat,
-    unholdSeat
+    unholdSeat,
+    getAllBookingsAdmin
 }

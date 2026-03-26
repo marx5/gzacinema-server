@@ -1,73 +1,59 @@
 const roomService = require('./room.service');
+const catchAsync = require('../../core/utils/catchAsync');
 
-const addRoom = async (req, res) => {
-    try {
-        const { cinemaId } = req.params;
-        const newRoom = await roomService.createRoom(cinemaId, req.body);
-        res.status(201).json({
-            status: 'success',
-            message: 'Room created successfully',
-            data: newRoom
-        })
-    } catch (error) {
-        res.status(400).json({
-            status: 'error',
-            message: error.message
-        })
-    }
-}
+const createRoom = catchAsync(async (req, res) => {
+    const { cinemaId } = req.params;
+    const newRoom = await roomService.createRoom(cinemaId, req.body);
+    res.status(201).json({
+        status: 'success',
+        message: 'Room created successfully',
+        data: newRoom
+    })
+})
 
-const getRoomsByCinema = async (req, res) => {
-    try {
-        const rooms = await roomService.getRoomsByCinema(req.params.cinemaId);
-        res.status(200).json({
-            status: 'success',
-            message: 'Rooms retrieved successfully',
-            data: rooms
-        })
-    } catch (error) {
-        res.status(400).json({
-            status: 'error',
-            message: error.message
-        })
-    }
-}
+const getRoomsByCinema = catchAsync(async (req, res) => {
+    const rooms = await roomService.getRoomsByCinema(req.params.cinemaId);
+    res.status(200).json({
+        status: 'success',
+        message: 'Rooms retrieved successfully',
+        data: rooms
+    })
+})
 
 
-const updateRoom = async (req, res) => {
-    try {
-        const room = await roomService.updateRoom(req.params.roomId, req.body);
-        res.status(200).json({
-            status: 'success',
-            message: 'Room updated successfully',
-            data: room
-        })
-    } catch (error) {
-        res.status(400).json({
-            status: 'error',
-            message: error.message
-        })
-    }
-}
+const updateRoom = catchAsync(async (req, res) => {
+    const room = await roomService.updateRoom(req.params.roomId, req.body);
+    res.status(200).json({
+        status: 'success',
+        message: 'Room updated successfully',
+        data: room
+    })
+})
 
-const deleteRoom = async (req, res) => {
-    try {
-        await roomService.deleteRoom(req.params.roomId);
-        res.status(200).json({
-            status: 'success',
-            message: 'Room deleted successfully'
-        })
-    } catch (error) {
-        res.status(400).json({
-            status: 'error',
-            message: error.message
-        })
-    }
-}
+const deleteRoom = catchAsync(async (req, res) => {
+    await roomService.deleteRoom(req.params.roomId);
+    res.status(200).json({
+        status: 'success',
+        message: 'Room deleted successfully'
+    })
+})
+
+const updateSeatStatus = catchAsync(async (req, res) => {
+    const { roomId, seatId } = req.params;
+    const { status } = req.body;
+
+    const seat = await roomService.updateSeatStatus(roomId, seatId, status);
+    res.status(200).json({
+        status: 'success',
+        message: 'Updated seat status successfully',
+        data: seat
+    });
+});
 
 module.exports = {
-    addRoom,
+    createRoom,
     getRoomsByCinema,
     updateRoom,
-    deleteRoom
+    deleteRoom,
+    updateSeatStatus
 }

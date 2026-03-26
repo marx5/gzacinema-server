@@ -19,7 +19,12 @@ module.exports = (sequelize, DataTypes) => {
         }
     }, {
         tableName: 'showtimes',
-        timestamps: true
+        timestamps: true,
+        indexes: [
+            { fields: ['movie_id'] },
+            { fields: ['room_id'] },
+            { fields: ['start_time'] }
+        ]
     })
     return Showtime;
 }

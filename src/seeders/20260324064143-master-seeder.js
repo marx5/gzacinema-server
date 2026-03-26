@@ -18,9 +18,9 @@ module.exports = {
     const hashedPassword = await bcrypt.hash('123456', 10);
 
     await queryInterface.bulkInsert('users', [
-      { id: adminId, email: 'admin@gzacinema.com', password: hashedPassword, role: 'admin', createdAt: now, updatedAt: now },
-      { id: staffId, email: 'staff@gzacinema.com', password: hashedPassword, role: 'staff', createdAt: now, updatedAt: now },
-      { id: userId, email: 'user@gmail.com', password: hashedPassword, role: 'user', createdAt: now, updatedAt: now }
+      { id: adminId, full_name: 'Super Admin', email: 'admin@gzacinema.com', password: hashedPassword, role: 'admin', createdAt: now, updatedAt: now },
+      { id: staffId, full_name: 'Nhân viên Rạp', email: 'staff@gzacinema.com', password: hashedPassword, role: 'staff', createdAt: now, updatedAt: now },
+      { id: userId, full_name: 'Khách Hàng VIP', email: 'user@gmail.com', password: hashedPassword, role: 'user', createdAt: now, updatedAt: now }
     ], {});
 
     // ==========================================

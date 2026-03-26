@@ -1,49 +1,49 @@
 const { User } = require('../../models');
 const userService = require('./user.service');
+const catchAsync = require('../../core/utils/catchAsync');
 
-const getMyProfile = async (req, res) => {
-    try {
-        const userId = req.user.id;
+const getMyProfile = catchAsync(async (req, res) => {
+    const userId = req.user.id;
 
-        const user = await User.findByPk(userId, {
-            attributes: {
-                exclude: ['password']
-            }
-        });
-        if (!user) {
-            return res.status(404).json({
-                status: 'error',
-                message: 'User not found'
-            })
+    const user = await User.findByPk(userId, {
+        attributes: {
+            exclude: ['password']
         }
-
-        res.status(200).json({
-            status: 'success',
-            data: user
-        })
-    } catch (error) {
-        res.status(500).json({
+    });
+    if (!user) {
+        return res.status(404).json({
             status: 'error',
-            message: error.message
-        });
+            message: 'User not found'
+        })
     }
-}
 
-const getMyHistory = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const history = await userService.getUserHistory(userId);
+    res.status(200).json({
+        status: 'success',
+        data: user
+    })
+})
 
-        res.status(200).json({
-            status: 'success',
-            data: history
-        });
-    } catch (error) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-}
+const getMyHistory = catchAsync(async (req, res) => {
+    const userId = req.user.id;
+    const history = await userService.getUserHistory(userId);
+
+    res.status(200).json({
+        status: 'success',
+        data: history
+    });
+});
+
+const updateMyProfile = catchAsync(async (req, res) => {
+    const updatedUser = await userService.updateProfile(req.user.id, req.body);
+    res.status(200).json({
+        status: 'success',
+        message: 'Profile updated successfully',
+        data: updatedUser
+    });
+});
 
 module.exports = {
     getMyProfile,
-    getMyHistory
+    getMyHistory,
+    updateMyProfile
 }

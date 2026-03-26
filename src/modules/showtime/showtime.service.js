@@ -1,17 +1,18 @@
-const { Op, where } = require('sequelize');
-const { Showtime, Room, Movie, Cinema } = require('../../models');
+const { Op, where, or } = require('sequelize');
+const { Showtime, Room, Movie, Cinema, Booking, Ticket } = require('../../models');
+const AppError = require('../../core/utils/AppError');
 
 const createShowtime = async (showtimeData) => {
     const { movie_id, room_id, start_time, base_price } = showtimeData;
 
     const movie = await Movie.findByPk(movie_id);
     if (!movie) {
-        throw new Error('Movie not found');
+        throw new AppError('Movie not found');
     }
 
     const room = await Room.findByPk(room_id);
     if (!room) {
-        throw new Error('Room not found');
+        throw new AppError('Room not found');
     }
 
     const totalMinutes = movie.duration_minutes + 15;
@@ -32,7 +33,7 @@ const createShowtime = async (showtimeData) => {
     })
 
     if (overlappingShowtime) {
-        throw new Error('Showtime overlaps with an existing showtime in the same room');
+        throw new AppError('Showtime overlaps with an existing showtime in the same room');
     }
 
     const newShowtime = await Showtime.create({
@@ -83,8 +84,62 @@ const getShowtimesByMovie = async (movieId) => {
     return Object.values(groupedShowtimes);
 }
 
+const getAllShowtimesAdmin = async (query) => {
+    const page = parseInt(query.page, 10) || 1;
+    const limit = parseInt(query.limit, 10) || 10;
+    const offset = (page - 1) * limit;
+
+    const { count, rows } = await Showtime.findAndCountAll({
+        order: [['start_time', 'DESC']],
+        limit,
+        offset,
+        include: [
+            {
+                model: Movie,
+                as: 'movie',
+                attributes: ['id', 'title']
+            },
+            {
+                model: Room,
+                as: 'room',
+                attributes: ['id', 'name'],
+                include: [{ model: Cinema, as: 'cinema', attributes: ['id', 'name'] }]
+            }
+        ]
+    })
+
+    return {
+        total_items: count,
+        total_pages: Math.ceil(count / limit),
+        current_page: page,
+        showtimes: rows
+    }
+}
+
+const deleteShowtime = async (showtimeId) => {
+    const showtime = await Showtime.findByPk(showtimeId);
+    if (!showtime) {
+        throw new AppError('Showtime not found', 404);
+    }
+
+    const soldBookingsCount = await Booking.count({
+        where: { showtime_id: showtimeId, status: 'paid' },
+    })
+
+    if (soldBookingsCount > 0) {
+        throw new AppError('Cannot delete showtime with sold tickets', 400);
+    }
+
+    await Showtime.destroy({ where: { id: showtimeId } });
+    return {
+        message: 'Showtime deleted successfully'
+    };
+}
+
 
 module.exports = {
     createShowtime,
-    getShowtimesByMovie
+    getShowtimesByMovie,
+    getAllShowtimesAdmin,
+    deleteShowtime
 }

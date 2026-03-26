@@ -1,16 +1,18 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { User } = require('../../models');
+const AppError = require('../../core/utils/AppError');
 
-const registerUser = async (email, password) => {
+const registerUser = async (full_name, email, password) => {
     const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
-        throw new Error('Email already in use');
+        throw new AppError('Email already in use', 400);
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const newUser = await User.create({
+        full_name,
         email,
         password: hashedPassword,
         role: 'user'
@@ -21,12 +23,12 @@ const registerUser = async (email, password) => {
 const loginUser = async (email, password) => {
     const user = await User.findOne({ where: { email } });
     if (!user) {
-        throw new Error('Invalid email or password');
+        throw new AppError('Invalid email or password', 400);
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-        throw new Error('Invalid email or password');
+        throw new AppError('Invalid email or password', 400);
     }
 
     const accessToken = jwt.sign({
@@ -47,14 +49,14 @@ const loginUser = async (email, password) => {
 
 const refreshAccessToken = async (refreshToken) => {
     if (!refreshToken) {
-        throw new Error('Refresh token is missing');
+        throw new AppError('Refresh token is missing', 400);
     }
 
     try {
         const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
         const user = await User.findByPk(decoded.id);
         if (!user) {
-            throw new Error('User not found');
+            throw new AppError('User not found', 404);
         }
 
         const newAccessToken = jwt.sign({
@@ -65,7 +67,7 @@ const refreshAccessToken = async (refreshToken) => {
         })
         return newAccessToken;
     } catch (error) {
-        throw new Error('Invalid or expired refresh token');
+        throw new AppError('Invalid or expired refresh token', 400);
     }
 }
 

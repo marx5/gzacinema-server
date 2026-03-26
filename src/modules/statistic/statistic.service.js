@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { Booking, Ticket, User, Showtime, Movie, Room, Cinema } = require('../../models');
+const { Booking, Ticket, User, sequelize, Showtime, Movie } = require('../../models');
 
 const getDashboardStats = async (query) => {
     const { startDate, endDate, cinemaId } = query;
@@ -22,51 +22,40 @@ const getDashboardStats = async (query) => {
         cinemaCondition.id = cinemaId;
     }
 
-    const paidBookings = await Booking.findAll({
-        where: bookingCondition,
-        include: [
-            {
-                model: Showtime,
-                as: 'showtime',
-                required: true,
-                include: [
-                    { model: Movie, as: 'movie', attributes: ['id', 'title'] },
-                    {
-                        model: Room,
-                        as: 'room',
-                        required: true,
-                        include: [{ model: Cinema, as: 'cinema', where: cinemaCondition, required: true }]
-                    }
-                ]
-            },
-            { model: Ticket, as: 'tickets' }
-        ]
-    });
-
-    let totalRevenue = 0;
-    let totalTicketsSold = 0;
-    const movieRevenueMap = {};
-
-    paidBookings.forEach(booking => {
-        const amount = parseFloat(booking.total_amount);
-        totalRevenue += amount;
-        totalTicketsSold += booking.tickets ? booking.tickets.length : 0;
-
-        const movieId = booking.showtime.movie.id;
-        const movieTitle = booking.showtime.movie.title;
-
-        if (!movieRevenueMap[movieId]) {
-            movieRevenueMap[movieId] = {
-                movie_id: movieId, title: movieTitle, total_revenue: 0, booking_count: 0
-            };
-        }
-        movieRevenueMap[movieId].total_revenue += amount;
-        movieRevenueMap[movieId].booking_count += 1;
-    });
+    const totalRevenue = await Booking.sum('total_amount', { where: bookingCondition }) || 0;
+    const totalTicketsSold = await Ticket.count({
+        include: [{
+            model: Booking,
+            as: 'booking',
+            where: bookingCondition,
+            required: true
+        }]
+    })
 
     const totalUsers = await User.count({ where: userCondition });
-    const revenueByMovie = Object.values(movieRevenueMap).sort((a, b) => b.total_revenue - a.total_revenue);
 
+    const revenueByMovie = await Booking.findAll({
+        where: bookingCondition,
+        attributes: [
+            [sequelize.col('showtime.movie.id'), 'movie_id'],
+            [sequelize.col('showtime.movie.title'), 'title'],
+            [sequelize.fn('SUM', sequelize.col('Booking.total_amount')), 'total_revenue'],
+            [sequelize.fn('COUNT', sequelize.col('Booking.id')), 'booking_count']
+        ],
+        include: [{
+            model: Showtime,
+            as: 'showtime',
+            attributes: [],
+            include: [{
+                model: Movie,
+                as: 'movie',
+                attributes: []
+            }]
+        }],
+        group: ['showtime.movie.id', 'showtime.movie.title'],
+        order: [[sequelize.literal('total_revenue'), 'DESC']],
+        raw: true
+    })
     return {
         overview: {
             total_revenue: totalRevenue,

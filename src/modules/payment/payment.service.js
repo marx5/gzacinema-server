@@ -3,6 +3,7 @@ const redis = require('../../config/redis');
 const crypto = require('crypto');
 const qs = require('qs');
 const moment = require('moment');
+const AppError = require('../../core/utils/AppError');
 
 function sortObject(obj) {
     let sorted = {};
@@ -22,12 +23,12 @@ function sortObject(obj) {
 
 const createVNPayUrl = async (userId, showtimeId, seatIds, ipAddr) => {
     const showtime = await Showtime.findByPk(showtimeId);
-    if (!showtime) throw new Error('showtime not found');
+    if (!showtime) throw new AppError('Showtime not found', 404);
 
     for (const seatId of seatIds) {
         const holder = await redis.get(`hold_seat:${showtimeId}:${seatId}`);
         if (holder !== userId) {
-            throw new Error(`Seat ${seatId} is not held by you or the hold has expired. Please hold the seat again before checkout.`);
+            throw new AppError(`Seat ${seatId} is not held by you or the hold has expired. Please hold the seat again before checkout.`, 400);
         }
     }
 
@@ -107,7 +108,7 @@ const createVNPayUrl = async (userId, showtimeId, seatIds, ipAddr) => {
 
     } catch (error) {
         await t.rollback();
-        throw new Error('Payment initialization failed: ' + error.message);
+        throw new AppError('Payment initialization failed: ' + error.message, 500);
     }
 }
 
@@ -152,18 +153,25 @@ const verifyIpn = async (vnp_Params) => {
             booking.status = 'paid';
             await booking.save();
             await redis.del(redisKeysToDelete);
-            return {
-                RspCode: '00',
-                Message: 'Confirm Success'
-            };
+            return { RspCode: '00', Message: 'Confirm Success' };
         } else {
-            booking.status = 'cancelled';
-            await booking.save();
+            const t = await sequelize.transaction();
+            try {
+                booking.status = 'cancelled';
+                await booking.save({ transaction: t });
+
+                await Ticket.update(
+                    { status: 'refunded' },
+                    { where: { booking_id: bookingId }, transaction: t }
+                );
+
+                await t.commit();
+            } catch (error) {
+                await t.rollback();
+            }
+
             await redis.del(redisKeysToDelete);
-            return {
-                RspCode: '00',
-                Message: 'Payment failed, order cancelled'
-            };
+            return { RspCode: '00', Message: 'Payment failed, order and tickets cancelled' };
         }
     } else {
         return {

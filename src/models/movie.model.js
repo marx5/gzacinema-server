@@ -33,7 +33,10 @@ module.exports = (sequelize, DataTypes) => {
         }
     }, {
         tableName: 'movies',
-        timestamps: true
+        timestamps: true,
+        indexes: [
+            { fields: ['release_date'] }
+        ]
     });
     return Movie;
 }

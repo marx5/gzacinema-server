@@ -1,69 +1,63 @@
 const bookingService = require('./booking.service');
+const catchAsync = require('../../core/utils/catchAsync');
+const AppError = require('../../core/utils/AppError');
 
-const getSeats = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const { showtimeId } = req.params;
-        const seatMap = await bookingService.getShowtimeSeats(showtimeId, userId);
+const getSeats = catchAsync(async (req, res) => {
+    const userId = req.user?.id;
+    const { showtimeId } = req.params;
 
-        res.status(200).json({
-            status: 'success',
-            data: seatMap
-        })
-    } catch (error) {
-        res.status(400).json({
-            status: 'error',
-            message: error.message
-        })
+    const seatMap = await bookingService.getShowtimeSeats(showtimeId, userId);
+
+    res.status(200).json({
+        status: 'success',
+        data: seatMap
+    });
+});
+
+const holdSeat = catchAsync(async (req, res) => {
+    const userId = req.user.id;
+    const { showtimeId, seatId } = req.body;
+
+    if (!showtimeId || !seatId) {
+        throw new AppError('showtimeId và seatId là bắt buộc', 400);
     }
-}
 
-const holdSeat = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const { showtimeId, seatId } = req.body;
+    const result = await bookingService.holdSeat(showtimeId, seatId, userId);
 
-        if (!showtimeId || !seatId) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'showtimeId and seatId are required'
-            })
-        }
+    res.status(200).json({
+        status: 'success',
+        data: result
+    });
+});
 
-        const result = await bookingService.holdSeat(showtimeId, seatId, userId);
-        res.status(200).json({
-            status: 'success',
-            data: result
-        })
-    } catch (error) {
-        res.status(400).json({
-            status: 'error',
-            message: error.message
-        })
+const unholdSeat = catchAsync(async (req, res) => {
+    const userId = req.user.id;
+    const { showtimeId, seatId } = req.body;
+
+    if (!showtimeId || !seatId) {
+        throw new AppError('showtimeId và seatId là bắt buộc', 400);
     }
-}
 
-const unholdSeat = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const { showtimeId, seatId } = req.body;
+    const result = await bookingService.unholdSeat(showtimeId, seatId, userId);
 
-        const result = await bookingService.unholdSeat(showtimeId, seatId, userId);
-        res.status(200).json({
-            status: 'success',
-            data: result
-        });
-    } catch (error) {
-        res.status(400).json({
-            status: 'error',
-            message: error.message
-        });
-    }
-}
+    res.status(200).json({
+        status: 'success',
+        data: result
+    });
+});
 
+const getAllForAdmin = catchAsync(async (req, res) => {
+    const result = await bookingService.getAllBookingsAdmin(req.query);
+
+    res.status(200).json({
+        status: 'success',
+        data: result
+    });
+});
 
 module.exports = {
     getSeats,
     holdSeat,
-    unholdSeat
-}
+    unholdSeat,
+    getAllForAdmin
+};
