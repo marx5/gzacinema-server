@@ -67,7 +67,7 @@ const refreshAccessToken = async (refreshToken) => {
         })
         return newAccessToken;
     } catch (error) {
-        throw new AppError('Invalid or expired refresh token', 400);
+        throw new AppError('Invalid or expired refresh token', 401);
     }
 }
 

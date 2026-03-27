@@ -20,6 +20,18 @@ const ticketRoutes = require('./modules/ticket/ticket.route');
 const statisticRoutes = require('./modules/statistic/statistic.route');
 
 const app = express();
+
+const rawTrustProxy = process.env.TRUST_PROXY;
+const trustProxy = rawTrustProxy === undefined
+    ? 1
+    : rawTrustProxy === 'true'
+        ? true
+        : rawTrustProxy === 'false'
+            ? false
+            : Number(rawTrustProxy);
+
+app.set('trust proxy', Number.isNaN(trustProxy) ? 1 : trustProxy);
+
 app.use(compression());
 
 app.use(morgan(':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" - :response-time ms'));
@@ -61,6 +73,14 @@ const paymentLimiter = rateLimit({
 
 app.get('/api', limiter, (req, res) => {
     res.status(200).json({ status: 'success', message: 'Welcome to Gzacinema API' });
+});
+
+app.get('/', (req, res) => {
+    res.status(200).json({ status: 'success', message: 'Gzacinema server is running' });
+});
+
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'success', message: 'OK' });
 });
 
 app.use('/api/auth', authLimiter, authRoutes);

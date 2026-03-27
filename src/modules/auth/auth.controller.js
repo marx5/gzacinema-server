@@ -1,6 +1,23 @@
 const authService = require('./auth.service');
 const catchAsync = require('../../core/utils/catchAsync');
 
+const buildRefreshCookieOptions = () => {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const cookieOptions = {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? 'none' : 'lax',
+        path: '/',
+        maxAge: 7 * 24 * 60 * 60 * 1000
+    };
+
+    if (process.env.COOKIE_DOMAIN) {
+        cookieOptions.domain = process.env.COOKIE_DOMAIN;
+    }
+
+    return cookieOptions;
+};
+
 const register = catchAsync(async (req, res) => {
     const { full_name, email, password } = req.body;
 
@@ -20,12 +37,7 @@ const login = catchAsync(async (req, res) => {
     const { email, password } = req.body;
 
     const { user, accessToken, refreshToken } = await authService.loginUser(email, password);
-    res.cookie('refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+    res.cookie('refreshToken', refreshToken, buildRefreshCookieOptions());
     res.status(200).json({
         status: 'success',
         message: 'Login successful',
@@ -39,7 +51,9 @@ const login = catchAsync(async (req, res) => {
 })
 
 const logout = catchAsync(async (req, res) => {
-    res.clearCookie('refreshToken');
+    const cookieOptions = buildRefreshCookieOptions();
+    delete cookieOptions.maxAge;
+    res.clearCookie('refreshToken', cookieOptions);
     res.status(200).json({
         status: 'success',
         message: 'Logout successful'
