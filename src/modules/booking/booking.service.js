@@ -121,6 +121,14 @@ const holdSeat = async (showtimeId, seatId, userId) => {
         throw new AppError('This seat is no longer available', 400);
     }
 
+    if (global.io) {
+        global.io.to(showtimeId).emit('seat_status_changed', {
+            id: seatId,
+            status: 'held',
+            held_by_user: userId
+        });
+    }
+
     return {
         message: 'Seat held successfully, hold will expire in 5 minutes',
         showtime_id: showtimeId,
@@ -135,6 +143,13 @@ const unholdSeat = async (showtimeId, seatId, userId) => {
 
     if (existingHold === userId) {
         await redis.del(redisKey);
+
+        if (global.io) {
+            global.io.to(showtimeId).emit('seat_status_changed', {
+                id: seatId,
+                status: 'available'
+            });
+        }
     }
 
     return {

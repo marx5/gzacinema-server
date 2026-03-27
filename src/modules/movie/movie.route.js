@@ -13,7 +13,7 @@ router.post('/', verifyToken, verifyAdmin, upload.single('thumbnail'), validate(
 router.get('/', movieController.getAllMovies);
 router.get('/:id', movieController.getMovieDetails);
 router.get('/:movieId/showtimes', showtimeController.getMovieShowtimes);
-router.put('/:id', verifyToken, verifyAdmin, validate(updateMovieSchema), movieController.updateMovie);
+router.put('/:id', verifyToken, verifyAdmin, upload.single('thumbnail'), validate(updateMovieSchema), movieController.updateMovie);
 router.delete('/:id', verifyToken, verifyAdmin, validate(updateMovieSchema), movieController.deleteMovie);
 
 

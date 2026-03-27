@@ -1,8 +1,21 @@
 const { Op } = require('sequelize');
 const { Booking, Ticket, User, sequelize, Showtime, Movie } = require('../../models');
+const redis = require('../../config/redis');
 
 const getDashboardStats = async (query) => {
     const { startDate, endDate, cinemaId } = query;
+
+    const cacheKey = `dashboard:stats:${startDate || 'all'}:${endDate || 'all'}:${cinemaId || 'all'}`;
+
+    try {
+        const cachedStats = await redis.get(cacheKey);
+        if (cachedStats) {
+            console.log('Returning cached dashboard stats');
+            return JSON.parse(cachedStats);
+        }
+    } catch (cacheErr) {
+        console.warn('Redis cache error:', cacheErr);
+    }
 
     const bookingCondition = { status: 'paid' };
     const userCondition = { role: 'user' };
@@ -56,7 +69,7 @@ const getDashboardStats = async (query) => {
         order: [[sequelize.literal('total_revenue'), 'DESC']],
         raw: true
     })
-    return {
+    const stats = {
         overview: {
             total_revenue: totalRevenue,
             total_users: totalUsers,
@@ -64,6 +77,15 @@ const getDashboardStats = async (query) => {
         },
         revenue_by_movie: revenueByMovie
     };
+
+    try {
+        await redis.setex(cacheKey, 300, JSON.stringify(stats));
+        console.log('Dashboard stats cached for 5 minutes');
+    } catch (cacheErr) {
+        console.warn('Error saving to Redis cache:', cacheErr);
+    }
+
+    return stats;
 }
 
 module.exports = { getDashboardStats }

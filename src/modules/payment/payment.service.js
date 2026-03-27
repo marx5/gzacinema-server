@@ -153,6 +153,16 @@ const verifyIpn = async (vnp_Params) => {
             booking.status = 'paid';
             await booking.save();
             await redis.del(redisKeysToDelete);
+
+            if (global.io) {
+                seatIds.forEach(seatId => {
+                    global.io.to(showtimeId).emit('seat_status_changed', {
+                        id: seatId,
+                        status: 'booked'
+                    });
+                });
+            }
+
             return { RspCode: '00', Message: 'Confirm Success' };
         } else {
             const t = await sequelize.transaction();

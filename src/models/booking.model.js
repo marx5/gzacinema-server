@@ -18,7 +18,8 @@ module.exports = (sequelize, DataTypes) => {
         timestamps: true,
         indexes: [
             { fields: ['user_id'] },
-            { fields: ['showtime_id'] }
+            { fields: ['showtime_id'] },
+            { fields: ['status', 'createdAt'], name: 'idx_booking_status_createdAt' }
         ]
     })
     return Booking;

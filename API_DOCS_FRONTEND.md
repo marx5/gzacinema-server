@@ -1,91 +1,119 @@
-# Tai Lieu API Backend Cho Frontend (Ban Tieng Viet)
+# Gzacinema Backend API Docs (Frontend)
 
-Tai lieu nay duoc cap nhat tu source code hien tai trong thu muc src vao ngay 2026-03-25.
+Tai lieu nay duoc cap nhat theo source code hien tai.
+Tat ca endpoint deu co base path: `/api`.
 
-## 1. Tong Quan
+## 1. General
 
-- Base path: /api
-- Welcome endpoint: GET /api
-- Response mau:
-  - Thanh cong: status = success
-  - Loi: status = error
-- Dinh danh du lieu: UUID
+- Success response thuong co `status: success`
+- Error response thuong co `status: error` hoac `status: fail`
+- Access token gui qua header:
 
-Middleware toan cuc:
-- helmet
-- cors voi origin = process.env.FRONTEND_URL, credentials = true
-- cookieParser
-- express.json
-- express.urlencoded extended true
+```http
+Authorization: Bearer <access_token>
+```
 
-## 2. Xac Thuc Va Phan Quyen
+- Refresh token duoc server set trong cookie `refreshToken` khi login
 
-Access token:
-- Gui trong header Authorization: Bearer <token>
+## 2. Authentication and Roles
 
-Refresh token:
-- Luu trong HttpOnly cookie ten refreshToken
-- Lay access token moi qua POST /api/auth/refresh
+- `verifyToken`: yeu cau access token hop le
+- `verifyAdmin`: yeu cau role `admin`
+- `verifyStaff`: yeu cau role `staff`
 
-Role:
-- user: dat ve
-- staff: check-in ve
-- admin: tao cinema, movie, room, showtime
+Role mapping:
 
-Auth middleware:
-- verifyToken
-  - 401: You are not authenticated or your token is missing
-  - 401: Invalid or expired token
-- verifyAdmin
-  - 403: You do not have permission to perform this action
-- verifyStaff
-  - 403: You do not have permission to perform this action
+- `user`: dat ve, xem lich su, cap nhat profile
+- `staff`: check-in ve, cap nhat trang thai ghe
+- `admin`: quan tri cinema/movie/room/showtime, xem booking va statistic
 
-## 3. Danh Sach Endpoint Dang Hoat Dong
+## 3. Endpoint List
 
-1. GET /api
-2. POST /api/auth/register
-3. POST /api/auth/login
-4. POST /api/auth/logout
-5. POST /api/auth/refresh
-6. GET /api/users/me
-7. GET /api/users/history
-8. POST /api/cinemas
-9. GET /api/cinemas
-10. GET /api/cinemas/:id
-11. PUT /api/cinemas/:id
-12. DELETE /api/cinemas/:id
-13. POST /api/movies
-14. GET /api/movies
-15. GET /api/movies/:id
-16. GET /api/movies/:movieId/showtimes
-17. PUT /api/movies/:id
-18. DELETE /api/movies/:id
-19. POST /api/rooms/:cinemaId
-20. GET /api/rooms/cinema/:cinemaId
-21. PUT /api/rooms/:roomId
-22. DELETE /api/rooms/:roomId
-23. POST /api/showtimes
-24. GET /api/bookings/showtime/:showtimeId/seats
-25. POST /api/bookings/hold
-26. POST /api/bookings/unhold
-27. POST /api/payments/create-payment-url
-28. GET /api/payments/vnpay_ipn
-29. PUT /api/tickets/:id/checkin
-30. GET /api/statistics/dashboard
+### 3.1 System
 
-Luu y:
-- Khong co endpoint POST /api/bookings/checkout trong route hien tai.
+1. `GET /api`
 
-## 4. Chi Tiet Tung Nhom API
+### 3.2 Auth
 
-## 4.1 Auth
+1. `POST /api/auth/register`
+2. `POST /api/auth/login`
+3. `POST /api/auth/logout`
+4. `POST /api/auth/refresh`
 
-### POST /api/auth/register
+### 3.3 Users
 
-Auth: Khong
+1. `GET /api/users/me`
+2. `PUT /api/users/me`
+3. `GET /api/users/history`
 
-Body:
+### 3.4 Cinemas
+
+1. `POST /api/cinemas` (admin)
+2. `GET /api/cinemas`
+3. `GET /api/cinemas/:id`
+4. `PUT /api/cinemas/:id` (admin)
+5. `DELETE /api/cinemas/:id` (admin)
+
+### 3.5 Movies
+
+1. `POST /api/movies` (admin, multipart/form-data)
+2. `GET /api/movies`
+3. `GET /api/movies/:id`
+4. `GET /api/movies/:movieId/showtimes`
+5. `PUT /api/movies/:id` (admin)
+6. `DELETE /api/movies/:id` (admin)
+
+### 3.6 Rooms
+
+1. `POST /api/rooms/:cinemaId` (admin)
+2. `GET /api/rooms/cinema/:cinemaId` (auth)
+3. `PUT /api/rooms/:roomId` (admin)
+4. `DELETE /api/rooms/:roomId` (admin)
+5. `PUT /api/rooms/:roomId/seats/:seatId` (staff)
+
+### 3.7 Showtimes
+
+1. `POST /api/showtimes` (admin)
+2. `GET /api/showtimes` (admin)
+3. `DELETE /api/showtimes/:id` (admin)
+
+### 3.8 Bookings
+
+1. `GET /api/bookings/showtime/:showtimeId/seats` (auth)
+2. `POST /api/bookings/hold` (auth)
+3. `POST /api/bookings/unhold` (auth)
+4. `GET /api/bookings` (admin)
+
+### 3.9 Payments
+
+1. `POST /api/payments/create-payment-url` (auth)
+2. `GET /api/payments/vnpay_ipn`
+
+### 3.10 Tickets
+
+1. `PUT /api/tickets/:id/checkin` (staff)
+
+### 3.11 Statistics
+
+1. `GET /api/statistics/dashboard` (admin)
+
+## 4. Request Samples
+
+### 4.1 Register
+
+`POST /api/auth/register`
+
+```json
+{
+  "full_name": "Nguyen Van A",
+  "email": "user@example.com",
+  "password": "123456"
+}
+```
+
+### 4.2 Login
+
+`POST /api/auth/login`
 
 ```json
 {
@@ -94,43 +122,13 @@ Body:
 }
 ```
 
-Success 201:
-
-```json
-{
-  "status": "success",
-  "message": "User registered successfully",
-  "data": {
-    "id": "uuid",
-    "email": "user@example.com"
-  }
-}
-```
-
-Error:
-- 400: Email already in use
-
-### POST /api/auth/login
-
-Auth: Khong
-
-Body:
-
-```json
-{
-  "email": "user@example.com",
-  "password": "123456"
-}
-```
-
-Success 200:
-- Set-Cookie: refreshToken (HttpOnly, sameSite strict, 7 ngay)
+Success response (rut gon):
 
 ```json
 {
   "status": "success",
   "message": "Login successful",
-  "accessToken": "jwt-access-token",
+  "accessToken": "<jwt>",
   "data": {
     "id": "uuid",
     "email": "user@example.com",
@@ -139,575 +137,128 @@ Success 200:
 }
 ```
 
-Error:
-- 401: Invalid email or password
+### 4.3 Update Profile
 
-### POST /api/auth/logout
-
-Auth: Khong
-
-Success 200:
+`PUT /api/users/me` (auth)
 
 ```json
 {
-  "status": "success",
-  "message": "Logout successful"
+  "full_name": "Nguyen Van B",
+  "phone_number": "0909123456",
+  "old_password": "123456",
+  "new_password": "654321"
 }
 ```
 
-### POST /api/auth/refresh
+Ghi chu:
+- Co the gui 1 phan data de cap nhat
+- Neu doi mat khau thi can ca `old_password` va `new_password`
 
-Auth: Cookie refreshToken (khong can bearer token)
+### 4.4 Create Movie
 
-Success 200:
+`POST /api/movies` (admin)
 
-```json
-{
-  "status": "success",
-  "accessToken": "new-jwt-access-token"
-}
-```
+Content type: `multipart/form-data`
 
-Error:
-- 401: Refresh token is missing
-- 401: Invalid or expired refresh token
+Form fields:
+- `title` (required)
+- `genre` (optional)
+- `description` (required)
+- `duration_minutes` (required)
+- `release_date` (required, ISO date)
+- `trailer_url` (optional)
+- `thumbnail` (optional file)
 
-## 4.2 User
+Neu khong upload `thumbnail`, server se gan anh default.
 
-### GET /api/users/me
+### 4.5 Get Movies
 
-Auth: Bearer token
+`GET /api/movies?status=showing&page=1&limit=10`
 
-Success 200:
+Query:
+- `status`: `all` (mac dinh) | `showing` | `coming_soon`
+- `page`: mac dinh 1
+- `limit`: mac dinh 10
 
-```json
-{
-  "status": "success",
-  "data": {
-    "id": "uuid",
-    "email": "user@example.com",
-    "role": "user",
-    "createdAt": "2026-03-23T10:00:00.000Z",
-    "updatedAt": "2026-03-23T10:00:00.000Z"
-  }
-}
-```
+### 4.6 Create Room
 
-Error:
-- 404: User not found
-- 500: Loi he thong
-
-### GET /api/users/history
-
-Auth: Bearer token
-
-Mo ta:
-- Tra ve danh sach booking da thanh toan cua user dang dang nhap.
-- Sap xep moi nhat truoc (createdAt DESC).
-
-Success 200 mau:
-
-```json
-{
-  "status": "success",
-  "data": [
-    {
-      "id": "booking-uuid",
-      "total_amount": "190000.00",
-      "status": "paid",
-      "showtime": {
-        "start_time": "2026-03-24T09:00:00.000Z",
-        "movie": {
-          "title": "Dune",
-          "duration_minutes": 155
-        },
-        "room": {
-          "name": "Room 1"
-        }
-      },
-      "tickets": [
-        {
-          "id": "ticket-uuid",
-          "price": "90000.00",
-          "status": "valid",
-          "seat": {
-            "row_letter": "A",
-            "seat_number": 1,
-            "type": "vip"
-          }
-        }
-      ]
-    }
-  ]
-}
-```
-
-Error:
-- 500: Loi he thong
-
-## 4.3 Cinema
-
-### POST /api/cinemas
-
-Auth: Bearer token + role admin
-
-Body:
-
-```json
-{
-  "name": "CGV District 1",
-  "address": "123 Main St"
-}
-```
-
-Success 201:
-
-```json
-{
-  "status": "success",
-  "message": "Cinema created successfully",
-  "data": {
-    "id": "uuid",
-    "name": "CGV District 1",
-    "address": "123 Main St",
-    "createdAt": "...",
-    "updatedAt": "..."
-  }
-}
-```
-
-Error:
-- 403: Khong du quyen
-- 500: Loi he thong
-
-### GET /api/cinemas
-
-Auth: Khong
-
-Success 200:
-- Tra ve danh sach rap.
-
-### GET /api/cinemas/:id
-
-Auth: Khong
-
-Success 200:
-- Tra ve thong tin chi tiet 1 rap.
-
-Error:
-- 404: Cinema not found
-
-### PUT /api/cinemas/:id
-
-Auth: Bearer token + role admin
-
-Body:
-- Co the cap nhat name va/hoac address.
-
-Error:
-- 403: Khong du quyen
-- 404: Cinema not found
-
-### DELETE /api/cinemas/:id
-
-Auth: Bearer token + role admin
-
-Success 200:
-- message: Cinema deleted successfully
-
-Error:
-- 403: Khong du quyen
-- 404: Cinema not found
-
-## 4.4 Movie
-
-### POST /api/movies
-
-Auth: Bearer token + role admin
-
-Body:
-
-```json
-{
-  "title": "Dune: Part Two",
-  "description": "Epic sci-fi thriller",
-  "duration_minutes": 155,
-  "release_date": "2026-03-24"
-}
-```
-
-Success 201:
-
-```json
-{
-  "status": "success",
-  "message": "Movie created successfully",
-  "data": {
-    "id": "uuid",
-    "title": "Dune: Part Two",
-    "description": "Epic sci-fi thriller",
-    "duration_minutes": 155,
-    "release_date": "2026-03-24"
-  }
-}
-```
-
-Error:
-- 400: Du lieu khong hop le
-- 403: Khong du quyen
-
-### GET /api/movies
-
-Auth: Khong
-
-Query optional:
-- status=showing
-- status=coming_soon
-
-Mo ta:
-- Neu khong truyen status: tra ve tat ca phim
-- showing: release_date <= hom nay
-- coming_soon: release_date > hom nay
-
-Success 200:
-
-```json
-{
-  "status": "success",
-  "data": [
-    {
-      "id": "uuid",
-      "title": "Dune",
-      "description": "...",
-      "duration_minutes": 155,
-      "release_date": "2026-03-20"
-    }
-  ]
-}
-```
-
-Error:
-- 500: Loi he thong
-
-### GET /api/movies/:id
-
-Auth: Khong
-
-Success 200:
-
-```json
-{
-  "status": "success",
-  "data": {
-    "id": "uuid",
-    "title": "Dune",
-    "description": "...",
-    "duration_minutes": 155,
-    "release_date": "2026-03-20"
-  }
-}
-```
-
-Error:
-- 404: Movie not found
-
-### GET /api/movies/:movieId/showtimes
-
-Auth: Khong
-
-Mo ta:
-- Tra ve danh sach suat chieu sap toi cua phim, group theo rap.
-
-Success 200:
-
-```json
-{
-  "status": "success",
-  "data": [
-    {
-      "cinema_info": {
-        "id": "cinema-uuid",
-        "name": "CGV District 1",
-        "address": "123 Main St"
-      },
-      "showtimes": [
-        {
-          "showtime_id": "showtime-uuid",
-          "room_name": "Room 1",
-          "start_time": "2026-03-24T09:00:00.000Z",
-          "base_price": "70000.00"
-        }
-      ]
-    }
-  ]
-}
-```
-
-Error:
-- 400: Loi truy van he thong
-
-### PUT /api/movies/:id
-
-Auth: Bearer token + role admin
-
-Body:
-- Cac field phim can cap nhat (title, description, duration_minutes, release_date, thumbnail).
-
-Error:
-- 403: Khong du quyen
-- 404: Movie not found
-
-### DELETE /api/movies/:id
-
-Auth: Bearer token + role admin
-
-Success 200:
-- message: Movie deleted successfully
-
-Error:
-- 403: Khong du quyen
-- 404: Movie not found
-
-## 4.5 Room
-
-### POST /api/rooms/:cinemaId
-
-Auth: Bearer token + role admin
-
-Body:
+`POST /api/rooms/:cinemaId` (admin)
 
 ```json
 {
   "name": "Room 1",
+  "cinema_id": 1,
   "rowCount": 5,
   "colCount": 10
 }
 ```
 
-Gia tri mac dinh:
-- rowCount = 5
-- colCount = 10
+Ghi chu:
+- `cinemaId` duoc lay tu URL param
+- Validation hien tai van yeu cau `cinema_id` trong body
+- Neu khong gui `rowCount`, `colCount`, server mac dinh 5x10
 
-Quy tac loai ghe khi tao tu dong:
-- Hang cuoi: sweetbox
-- 2 hang truoc hang cuoi: vip
-- Con lai: standard
+### 4.7 Create Showtime
 
-Success 201:
+`POST /api/showtimes` (admin)
 
 ```json
 {
-  "status": "success",
-  "message": "Room created successfully",
-  "data": {
-    "id": "uuid",
-    "name": "Room 1",
-    "cinema_id": "cinema-uuid",
-    "total_seats_generated": 50
-  }
+  "movie_id": "uuid",
+  "room_id": "uuid",
+  "start_time": "2026-03-28T19:00:00.000Z",
+  "base_price": 90000
 }
 ```
 
-Error:
-- 400: Cinema not found
-- 403: Khong du quyen
+Server tu dong tinh `end_time = start_time + duration_minutes + 15`.
 
-### GET /api/rooms/cinema/:cinemaId
+### 4.8 Get Seat Map
 
-Auth: Bearer token
+`GET /api/bookings/showtime/:showtimeId/seats` (auth)
 
-Success 200:
-- Tra ve danh sach phong theo rap.
+Trang thai ghe trong response:
+- `available`
+- `booked`
+- `held`
+- `held_by_me`
 
-### PUT /api/rooms/:roomId
+### 4.9 Hold Seat
 
-Auth: Bearer token + role admin
-
-Body:
-- Co the cap nhat name, rowCount, colCount.
-
-Error:
-- 403: Khong du quyen
-- 400: Room not found
-
-### DELETE /api/rooms/:roomId
-
-Auth: Bearer token + role admin
-
-Success 200:
-- message: Room deleted successfully
-
-Error:
-- 403: Khong du quyen
-- 400: Room not found
-
-## 4.6 Showtime
-
-### POST /api/showtimes
-
-Auth: Bearer token + role admin
-
-Body:
+`POST /api/bookings/hold` (auth)
 
 ```json
 {
-  "movie_id": "movie-uuid",
-  "room_id": "room-uuid",
-  "start_time": "2026-03-24T09:00:00.000Z",
-  "base_price": 70000
+  "showtimeId": "uuid",
+  "seatId": "uuid"
 }
 ```
 
-Business rule:
-- end_time = start_time + duration_minutes cua movie + 15 phut
-- Khong cho phep trung lich trong cung room
+Ghe duoc hold trong 5 phut.
 
-Success 201:
+### 4.10 Unhold Seat
+
+`POST /api/bookings/unhold` (auth)
 
 ```json
 {
-  "status": "success",
-  "message": "Showtime created successfully",
-  "data": {
-    "id": "uuid",
-    "movie_id": "movie-uuid",
-    "room_id": "room-uuid",
-    "start_time": "...",
-    "end_time": "...",
-    "base_price": "70000.00"
-  }
+  "showtimeId": "uuid",
+  "seatId": "uuid"
 }
 ```
 
-Error:
-- 400: Movie not found
-- 400: Room not found
-- 400: Showtime overlaps with an existing showtime in the same room
-- 403: Khong du quyen
+### 4.11 Create Payment URL
 
-## 4.7 Booking
-
-### GET /api/bookings/showtime/:showtimeId/seats
-
-Auth: Bearer token
-
-Success 200:
+`POST /api/payments/create-payment-url` (auth)
 
 ```json
 {
-  "status": "success",
-  "data": {
-    "showtime_info": {
-      "movie_id": "movie-uuid",
-      "start_time": "2026-03-24T09:00:00.000Z",
-      "room_name": "Room 1"
-    },
-    "seats": [
-      {
-        "id": "seat-uuid",
-        "row_letter": "A",
-        "seat_number": 1,
-        "type": "standard",
-        "status": "available"
-      }
-    ]
-  }
+  "showtimeId": "uuid",
+  "seatIds": ["uuid-1", "uuid-2"]
 }
 ```
 
-Y nghia status tra ve cho frontend:
-- available: ghe trong
-- held: dang duoc giu boi mot user
-- booked: da thanh toan
-
-Error:
-- 400: Showtime not found
-
-### POST /api/bookings/hold
-
-Auth: Bearer token
-
-Body:
-
-```json
-{
-  "showtimeId": "showtime-uuid",
-  "seatId": "seat-uuid"
-}
-```
-
-Success 200:
-
-```json
-{
-  "status": "success",
-  "data": {
-    "message": "Seat held successfully, hold will expire in 5 minutes",
-    "showtime_id": "showtime-uuid",
-    "seat_id": "seat-uuid",
-    "expire_time": 300
-  }
-}
-```
-
-Error:
-- 400: showtimeId and seatId are required
-- 400: Showtime not found
-- 400: Seat not found
-- 400: Seat already sold
-- 400: You have already held this seat
-- 400: Seat is currently held by another user
-
-### POST /api/bookings/unhold
-
-Auth: Bearer token
-
-Body:
-
-```json
-{
-  "showtimeId": "showtime-uuid",
-  "seatId": "seat-uuid"
-}
-```
-
-Success 200:
-- message: Seat released successfully
-
-Error:
-- 400: Showtime not found
-- 400: Seat not found
-- 400: You can only unhold your own held seat
-
-## 4.8 Payment
-
-### POST /api/payments/create-payment-url
-
-Auth: Bearer token
-
-Body:
-
-```json
-{
-  "showtimeId": "showtime-uuid",
-  "seatIds": ["seat-1", "seat-2"]
-}
-```
-
-Luong xu ly:
-1. Kiem tra user dang hold tat ca seatIds
-2. Tinh tong tien theo loai ghe
-3. Tao booking voi status pending
-4. Tao ticket voi status valid
-5. Gia han hold Redis len 15 phut
-6. Tao VNPay paymentUrl va tra ve frontend
-
-Cong gia theo loai ghe:
-- standard: +0
-- vip: +20000
-- sweetbox: +50000
-
-Success 200:
+Success response (rut gon):
 
 ```json
 {
@@ -715,120 +266,49 @@ Success 200:
   "message": "Payment URL created successfully",
   "data": {
     "paymentUrl": "https://sandbox.vnpayment.vn/...",
-    "bookingId": "booking-uuid"
+    "bookingId": "uuid"
   }
 }
 ```
 
-Error:
-- 400: Invalid data provided
-- 400: showtime not found
-- 400: Seat <id> is not held by you or the hold has expired. Please hold the seat again before checkout.
-- 400: Payment initialization failed: ...
+Luu y quan trong:
+- Tat ca seat trong `seatIds` phai dang duoc hold boi chinh user hien tai
+- Booking duoc tao voi status `pending` truoc khi redirect sang VNPay
+- VNPay IPN thanh cong -> booking `paid`
+- VNPay IPN that bai -> booking `cancelled`, ticket `refunded`
 
-### GET /api/payments/vnpay_ipn
+### 4.12 Admin Booking List
 
-Auth: Khong (callback tu VNPay)
+`GET /api/bookings?page=1&limit=10&status=paid` (admin)
 
-Response format rieng:
+Query:
+- `page` mac dinh 1
+- `limit` mac dinh 10
+- `status` (optional): `pending|paid|cancelled`
 
-```json
-{
-  "RspCode": "00",
-  "Message": "Confirm Success"
-}
-```
+### 4.13 Admin Dashboard
 
-RspCode co the gap:
-- 00: Thanh cong hoac that bai da duoc xu ly (confirm/cancel)
-- 01: Order not found
-- 02: Order already confirmed
-- 97: Checksum failed
-- 99: Unknown error
+`GET /api/statistics/dashboard?startDate=2026-03-01&endDate=2026-03-31` (admin)
 
-## 4.9 Ticket
+Response data gom:
+- `overview.total_revenue`
+- `overview.total_users`
+- `overview.total_tickets_sold`
+- `revenue_by_movie[]`
 
-### PUT /api/tickets/:id/checkin
+## 5. Error Notes
 
-Auth: Bearer token + role staff hoac admin
+Mot so loi thuong gap:
+- 400: Du lieu khong hop le, sai body, seat da bi giu/da ban
+- 401: Chua dang nhap, token sai/het han
+- 403: Khong du quyen role
+- 404: Khong tim thay resource
+- 429: Qua gioi han request
 
-Success 200:
+## 6. Frontend Integration Checklist
 
-```json
-{
-  "status": "success",
-  "message": "Ticket checked in successfully",
-  "data": {
-    "id": "ticket-uuid",
-    "booking_id": "booking-uuid",
-    "seat_id": "seat-uuid",
-    "price": "90000.00",
-    "status": "used"
-  }
-}
-```
-
-Error:
-- 400: Ticket not found
-- 400: Ticket has already been used
-- 400: Ticket has already been refunded
-- 403: Khong du quyen
-
-## 4.10 Statistic
-
-### GET /api/statistics/dashboard
-
-Auth: Bearer token + role admin
-
-Query optional:
-- startDate (YYYY-MM-DD)
-- endDate (YYYY-MM-DD)
-- cinemaId
-
-Success 200:
-- Tra ve dashboard thong ke (doanh thu, so ve, suat chieu, user moi...) theo bo loc.
-
-Error:
-- 403: Khong du quyen
-- 500: Loi he thong
-
-## 5. Luong Tich Hop De Xuat Cho Frontend
-
-Luong dat ve va thanh toan:
-1. Goi GET /api/movies hoac GET /api/movies/:movieId/showtimes de hien thi lich phim
-2. Goi GET /api/bookings/showtime/:showtimeId/seats de lay so do ghe
-3. Goi POST /api/bookings/hold cho tung ghe nguoi dung chon
-4. Goi POST /api/payments/create-payment-url
-5. Redirect den paymentUrl
-6. Sau khi thanh toan xong, reload lich su qua GET /api/users/history
-
-Luong refresh token:
-1. Khi API tra 401 token het han, goi POST /api/auth/refresh
-2. Lay access token moi
-3. Retry request cu
-
-## 6. Field Model Can Frontend Quan Tam
-
-User:
-- id, email, role, createdAt, updatedAt
-
-Cinema:
-- id, name, address, createdAt, updatedAt
-
-Movie:
-- id, title, description, duration_minutes, release_date, createdAt, updatedAt
-
-Room:
-- id, name, cinema_id, createdAt, updatedAt
-
-Seat:
-- id, room_id, row_letter, seat_number, type, status, createdAt, updatedAt, deletedAt
-
-Showtime:
-- id, movie_id, room_id, start_time, end_time, base_price, createdAt, updatedAt
-
-Booking:
-- id, user_id, showtime_id, total_amount, status (pending|paid|cancelled), createdAt, updatedAt
-
-Ticket:
-- id, booking_id, seat_id, price, status (valid|used|refunded), createdAt, updatedAt
+- Luon gui `Authorization` voi endpoint yeu cau auth
+- Bat `withCredentials: true` neu frontend can goi refresh flow bang cookie
+- Sau login, luu access token va refresh token de trong cookie do backend quan ly
+- Truoc khi thanh toan, bat buoc hold ghe
+- Sau khi redirect thanh toan, frontend can co trang return tu `VNP_RETURN_URL`

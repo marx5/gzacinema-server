@@ -1,50 +1,51 @@
 # Gzacinema Server
 
-Backend API cho hệ thống đặt vé phim Gzacinema, xây dựng với Express + Sequelize + MySQL.
+Backend API cho he thong dat ve xem phim Gzacinema, su dung Node.js, Express va Sequelize.
 
-## Công nghệ sử dụng
+## 1. Tech Stack
 
 - Node.js
 - Express 5
-- Sequelize
-- MySQL (`mysql2`)
-- JWT (`jsonwebtoken`)
-- Redis (`ioredis`)
-- Cloudinary + Multer
-- Cookie Parser, CORS, Helmet
+- Sequelize + MySQL
+- Redis (ioredis)
+- JWT (access/refresh token)
+- Cloudinary + Multer (upload poster phim)
+- Helmet, CORS, Cookie Parser, Morgan, Compression, Express Rate Limit
 
-## Cấu trúc thư mục
+## 2. Project Structure
 
 ```text
-server/
-  src/
-    app.js                 # Khởi tạo middleware và route
-    server.js              # Entry point, connect DB, start HTTP server
-    config/                # DB, Redis, Cloudinary, Sequelize config
-    core/middlewares/      # Auth middleware
-    models/                # Sequelize models và associations
-    modules/               # Theo domain: auth, movie, booking, ...
-    seeders/               # Seeder dữ liệu mẫu
-  postman/                 # Bộ sưu tập request để test API
-  API_DOCS_FRONTEND.md     # Tài liệu API chi tiết cho frontend
+src/
+  app.js                         # Middleware va route
+  server.js                      # Entry point, ket noi DB va start server
+  config/                        # DB, Redis, Cloudinary
+  core/
+    middlewares/                 # Auth + validate middleware
+    utils/                       # AppError, catchAsync
+  models/                        # Sequelize models + associations
+  modules/                       # Auth, User, Movie, Cinema, Room...
+  seeders/                       # Du lieu mau
+postman/
+API_DOCS_FRONTEND.md
+README.md
 ```
 
-## Yêu cầu hệ thống
+## 3. Requirements
 
 - Node.js >= 18
 - npm >= 9
 - MySQL
-- Redis (khuyến nghị để hỗ trợ luồng giữ ghế)
+- Redis
 
-## Cài đặt
+## 4. Installation
 
 ```bash
 npm install
 ```
 
-## Cấu hình môi trường
+## 5. Environment Variables
 
-Tạo file `.env` trong thư mục `server`.
+Tao file `.env` o root cua project voi noi dung mau:
 
 ```env
 # Server
@@ -82,9 +83,9 @@ VNP_URL=https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
 VNP_RETURN_URL=http://localhost:5173/payment/success
 ```
 
-## Chạy dự án
+## 6. Run
 
-Development (hot reload với nodemon):
+Development:
 
 ```bash
 npm run dev
@@ -96,81 +97,105 @@ Production:
 npm run start
 ```
 
-Khi chạy thành công:
+Sau khi chay thanh cong:
+
 - API base: `http://localhost:5000/api`
-- Health check đơn giản: `GET /api`
+- Ping API: `GET /api`
 
-## Scripts
+## 7. npm Scripts
 
-- `npm run dev`: chạy server bằng nodemon
-- `npm run start`: chạy server bằng node
-- `npm test`: placeholder (chưa có test)
+- `npm run dev`: chay server bang nodemon
+- `npm run start`: chay server bang node
+- `npm test`: placeholder
 
-## Cách API hoạt động
+## 8. Authentication
 
-- Prefix chung: `/api`
-- CORS cho phép origin từ `FRONTEND_URL` và bật `credentials`
-- `refreshToken` lưu trong HttpOnly cookie
-- Access token truyền qua header `Authorization: Bearer <token>`
+- Access token: gui qua header `Authorization: Bearer <token>`
+- Refresh token: luu trong cookie `refreshToken` (HttpOnly)
+- Refresh endpoint: `POST /api/auth/refresh`
 
-## Nhóm route chính
+## 9. Roles
 
-- `auth`: `/api/auth`
-  - `POST /register`
-  - `POST /login`
-  - `POST /logout`
-  - `POST /refresh`
-- `users`: `/api/users`
-  - `GET /me`
-  - `GET /history`
-- `movies`: `/api/movies`
-  - `POST /` (admin)
-  - `GET /`
-  - `GET /:id`
-  - `GET /:movieId/showtimes`
-  - `PUT /:id` (admin)
-  - `DELETE /:id` (admin)
-- `cinemas`: `/api/cinemas`
-- `rooms`: `/api/rooms`
-- `showtimes`: `/api/showtimes`
-- `bookings`: `/api/bookings`
-  - `GET /showtime/:showtimeId/seats`
-  - `POST /hold`
-  - `POST /unhold`
-- `payments`: `/api/payments`
-  - `POST /create-payment-url` (cần token)
-  - `GET /vnpay_ipn` (callback)
-- `tickets`: `/api/tickets`
-  - `PUT /:id/checkin` (staff)
-- `statistics`: `/api/statistics`
-  - `GET /dashboard` (admin)
+- `user`: dat ve, xem/cap nhat profile
+- `staff`: check-in ticket, doi trang thai ghe
+- `admin`: quan ly cinema, movie, room, showtime, dashboard, danh sach booking
 
-## Phân quyền
+## 10. API Route Summary
 
-- `user`: đặt vé, xem lịch sử
-- `staff`: check-in vé
-- `admin`: quản trị phim/rạp/phòng/suất chiếu, xem thống kê
+Tat ca route duoc prefix bang `/api`.
 
-Middleware:
-- `verifyToken`
-- `verifyAdmin`
-- `verifyStaff`
+### Public
 
-## Cơ sở dữ liệu
+- `GET /api`
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `POST /api/auth/refresh`
+- `GET /api/cinemas`
+- `GET /api/cinemas/:id`
+- `GET /api/movies`
+- `GET /api/movies/:id`
+- `GET /api/movies/:movieId/showtimes`
+- `GET /api/payments/vnpay_ipn`
 
-Server gọi `sequelize.sync({ alter: true })` khi khởi động trong [src/server.js](src/server.js#L10).
-Điều này giúp đồng bộ schema nhanh khi phát triển, nhưng nên cân nhắc migration rõ ràng cho production.
+### Authenticated (verifyToken)
 
-## Tài liệu và test API
+- `GET /api/users/me`
+- `PUT /api/users/me`
+- `GET /api/users/history`
+- `GET /api/rooms/cinema/:cinemaId`
+- `GET /api/bookings/showtime/:showtimeId/seats`
+- `POST /api/bookings/hold`
+- `POST /api/bookings/unhold`
+- `POST /api/payments/create-payment-url`
 
-- Tài liệu frontend-facing: [API_DOCS_FRONTEND.md](API_DOCS_FRONTEND.md)
-- Postman collection: [postman/Gzacinema_API.postman_collection.json](postman/Gzacinema_API.postman_collection.json)
-- Postman environment: [postman/Gzacinema_Local.postman_environment.json](postman/Gzacinema_Local.postman_environment.json)
+### Staff
 
-## Gợi ý khởi động nhanh local
+- `PUT /api/rooms/:roomId/seats/:seatId`
+- `PUT /api/tickets/:id/checkin`
 
-1. Bật MySQL và tạo database `gzacinema`.
-2. Bật Redis.
-3. Điền `.env` theo mẫu trên.
-4. Chạy `npm run dev` trong thư mục `server`.
-5. Kiểm tra `GET http://localhost:5000/api` trả về `status: success`.
+### Admin
+
+- `POST /api/cinemas`
+- `PUT /api/cinemas/:id`
+- `DELETE /api/cinemas/:id`
+- `POST /api/movies`
+- `PUT /api/movies/:id`
+- `DELETE /api/movies/:id`
+- `POST /api/rooms/:cinemaId`
+- `PUT /api/rooms/:roomId`
+- `DELETE /api/rooms/:roomId`
+- `POST /api/showtimes`
+- `GET /api/showtimes`
+- `DELETE /api/showtimes/:id`
+- `GET /api/bookings`
+- `GET /api/statistics/dashboard`
+
+## 11. Important Behaviors
+
+- Rate limit toan API: 1000 requests / 15 phut / IP
+- Rate limit auth: 20 requests / 15 phut / IP
+- Ghe dat tam (`hold`) duoc luu Redis trong 5 phut
+- Khi tao payment URL, hold ghe duoc gia han den 15 phut
+- Danh sach phim va rap co cache Redis
+- Server dang dung `sequelize.sync({ alter: true })` khi startup
+
+## 12. Main Data Models
+
+- User: full_name, email, phone_number, role(`user|staff|admin`)
+- Movie: title, genre, description, duration_minutes, release_date, thumbnail, trailer_url
+- Cinema: name, address
+- Room: name, cinema_id
+- Seat: row_letter, seat_number, type(`standard|vip|sweetbox`), status(`available|broken|maintenance`)
+- Showtime: movie_id, room_id, start_time, end_time, base_price
+- Booking: user_id, showtime_id, total_amount, status(`pending|paid|cancelled`)
+- Ticket: booking_id, seat_id, price, status(`valid|used|refunded`)
+
+## 13. Postman
+
+- `postman/Gzacinema_API.postman_collection.json`
+- `postman/Gzacinema_Local.postman_environment.json`
+
+## 14. API Details
+
+Xem tai lieu chi tiet cho frontend o file `API_DOCS_FRONTEND.md`.

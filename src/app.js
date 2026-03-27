@@ -35,7 +35,7 @@ app.use(express.urlencoded({ extended: true }));
 
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 1000,
+    max: 5000,
     message: { status: 'error', message: 'Too many requests from this IP, please try again later.' }
 })
 
@@ -45,20 +45,34 @@ const authLimiter = rateLimit({
     message: { status: 'error', message: 'Too many login attempts, please try again after 15 minutes.' }
 });
 
+const bookingLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 50,
+    skipSuccessfulRequests: true,
+    message: { status: 'error', message: 'Too many booking requests, please try again later.' }
+});
+
+const paymentLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 30,
+    skipSuccessfulRequests: true,
+    message: { status: 'error', message: 'Too many payment requests, please try again later.' }
+});
+
 app.get('/api', limiter, (req, res) => {
     res.status(200).json({ status: 'success', message: 'Welcome to Gzacinema API' });
 });
 
 app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/cinemas', cinemaRoutes);
-app.use('/api/movies', movieRoutes);
-app.use('/api/rooms', roomRoutes);
-app.use('/api/showtimes', showtimeRoutes);
-app.use('/api/bookings', bookingRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/tickets', ticketRoutes);
-app.use('/api/statistics', statisticRoutes);
+app.use('/api/users', limiter, userRoutes);
+app.use('/api/cinemas', limiter, cinemaRoutes);
+app.use('/api/movies', limiter, movieRoutes);
+app.use('/api/rooms', limiter, roomRoutes);
+app.use('/api/showtimes', limiter, showtimeRoutes);
+app.use('/api/bookings', bookingLimiter, bookingRoutes);
+app.use('/api/payments', paymentLimiter, paymentRoutes);
+app.use('/api/tickets', limiter, ticketRoutes);
+app.use('/api/statistics', limiter, statisticRoutes);
 
 app.all(/.*/, (req, res) => {
     res.status(404).json({

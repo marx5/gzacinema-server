@@ -89,7 +89,13 @@ const getAllShowtimesAdmin = async (query) => {
     const limit = parseInt(query.limit, 10) || 10;
     const offset = (page - 1) * limit;
 
+    let condition = {};
+    if (query.movie_id) {
+        condition.movie_id = query.movie_id;
+    }
+
     const { count, rows } = await Showtime.findAndCountAll({
+        where: condition,
         order: [['start_time', 'DESC']],
         limit,
         offset,

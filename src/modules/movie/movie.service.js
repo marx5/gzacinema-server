@@ -4,10 +4,15 @@ const AppError = require('../../core/utils/AppError');
 const redis = require('../../config/redis');
 
 const clearMovieCache = async () => {
-    const keys = await redis.keys('cache:movies*');
-    if (keys.length > 0) {
-        await redis.del(keys);
-    }
+    let cursor = '0';
+    do {
+        const result = await redis.scan(cursor, 'MATCH', 'cache:movies*', 'COUNT', 100);
+        cursor = result[0];
+        const keys = result[1];
+        if (keys.length > 0) {
+            await redis.del(keys);
+        }
+    } while (cursor !== '0');
 }
 
 const createMovie = async (movieData) => {
