@@ -5,6 +5,17 @@ const qs = require('qs');
 const moment = require('moment');
 const AppError = require('../../core/utils/AppError');
 
+const VNPAY_UTC_OFFSET_MINUTES = 7 * 60;
+
+const getVNPayDateRange = () => {
+    const vnNow = moment().utcOffset(VNPAY_UTC_OFFSET_MINUTES);
+
+    return {
+        createDate: vnNow.format('YYYYMMDDHHmmss'),
+        expireDate: vnNow.clone().add(15, 'minutes').format('YYYYMMDDHHmmss')
+    };
+};
+
 const validateVNPayConfig = () => {
     const requiredVars = ['VNP_TMNCODE', 'VNP_HASHSECRET', 'VNP_URL', 'VNP_RETURN_URL'];
     const missingVars = requiredVars.filter((key) => !process.env[key]);
@@ -80,9 +91,7 @@ const createVNPayUrl = async (userId, showtimeId, seatIds, ipAddr) => {
             await redis.expire(`hold_seat:${showtimeId}:${seatId}`, 15 * 60);
         }
 
-        let date = new Date();
-        let createDate = moment(date).format('YYYYMMDDHHmmss');
-        let expireDate = moment(date).add(15, 'minutes').format('YYYYMMDDHHmmss');
+        const { createDate, expireDate } = getVNPayDateRange();
         let tmnCode = process.env.VNP_TMNCODE;
         let secretKey = process.env.VNP_HASHSECRET;
         let vnpUrl = process.env.VNP_URL;
