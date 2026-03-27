@@ -6,10 +6,10 @@ const { verifyToken, verifyAdmin, verifyStaff } = require('../../core/middleware
 const validate = require('../../core/middlewares/validate.middleware');
 const { createRoomSchema, updateRoomSchema } = require('./room.validation');
 
-router.post('/:cinemaId', verifyToken, verifyAdmin, validate(createRoomSchema), roomController.createRoom);
-router.get('/cinema/:cinemaId', verifyToken, roomController.getRoomsByCinema);
-router.put('/:roomId', verifyToken, verifyAdmin, validate(updateRoomSchema), roomController.updateRoom);
-router.delete('/:roomId', verifyToken, verifyAdmin, validate(updateRoomSchema), roomController.deleteRoom);
-router.put('/:roomId/seats/:seatId', verifyToken, verifyStaff, roomController.updateSeatStatus);
+router.post('/:cinemaId/rooms', verifyToken, verifyAdmin, validate(createRoomSchema), roomController.createRoom);
+router.get('/:cinemaId/rooms', verifyToken, roomController.getRoomsByCinema);
+router.put('/:cinemaId/rooms/:roomId', verifyToken, verifyAdmin, validate(updateRoomSchema), roomController.updateRoom);
+router.delete('/:cinemaId/rooms/:roomId', verifyToken, verifyAdmin, roomController.deleteRoom);
+router.put('/:cinemaId/rooms/:roomId/seats/:seatId', verifyToken, verifyStaff, roomController.updateSeatStatus);
 
 module.exports = router;

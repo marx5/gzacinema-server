@@ -67,7 +67,7 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/users', limiter, userRoutes);
 app.use('/api/cinemas', limiter, cinemaRoutes);
 app.use('/api/movies', limiter, movieRoutes);
-app.use('/api/rooms', limiter, roomRoutes);
+app.use('/api/cinemas', limiter, roomRoutes);
 app.use('/api/showtimes', limiter, showtimeRoutes);
 app.use('/api/bookings', bookingLimiter, bookingRoutes);
 app.use('/api/payments', paymentLimiter, paymentRoutes);
