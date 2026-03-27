@@ -8,12 +8,14 @@ const sequelize = new Sequelize(
     {
         host: process.env.DB_HOST,
         dialect: process.env.DB_DIALECT,
-        dialectOptions: {
-            ssl: {
-                require: true,
-                rejectUnauthorized: false
+        ...(process.env.NODE_ENV === 'production' && {
+            dialectOptions: {
+                ssl: {
+                    require: true,
+                    rejectUnauthorized: false
+                }
             }
-        },
+        }),
         logging: false,
         pool: {
             max: 20,

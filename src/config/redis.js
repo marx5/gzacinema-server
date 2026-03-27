@@ -1,11 +1,16 @@
 const Redis = require('ioredis');
 
-const redis = new Redis(process.env.REDIS_URL, {
-    tls: {}
-});
+const env = process.env.NODE_ENV || 'development';
+
+const redisOptions = {};
+if (env === 'production') {
+    redisOptions.tls = {};
+}
+
+const redis = new Redis(process.env.REDIS_URL, redisOptions);
 
 redis.on('connect', () => {
-    console.log('Connected to Redis');
+    console.log(`Connected to Redis (${env})`);
 });
 
 redis.on('error', (err) => {
