@@ -5,6 +5,15 @@ const qs = require('qs');
 const moment = require('moment');
 const AppError = require('../../core/utils/AppError');
 
+const validateVNPayConfig = () => {
+    const requiredVars = ['VNP_TMNCODE', 'VNP_HASHSECRET', 'VNP_URL', 'VNP_RETURN_URL'];
+    const missingVars = requiredVars.filter((key) => !process.env[key]);
+
+    if (missingVars.length > 0) {
+        throw new AppError(`Missing VNPay configuration: ${missingVars.join(', ')}`, 500);
+    }
+};
+
 function sortObject(obj) {
     let sorted = {};
     let str = [];
@@ -22,6 +31,8 @@ function sortObject(obj) {
 }
 
 const createVNPayUrl = async (userId, showtimeId, seatIds, ipAddr) => {
+    validateVNPayConfig();
+
     const showtime = await Showtime.findByPk(showtimeId);
     if (!showtime) throw new AppError('Showtime not found', 404);
 
@@ -86,7 +97,7 @@ const createVNPayUrl = async (userId, showtimeId, seatIds, ipAddr) => {
         vnp_Params['vnp_TxnRef'] = newBooking.id;
         vnp_Params['vnp_OrderInfo'] = 'Thanh toan ve phim: ' + newBooking.id;
         vnp_Params['vnp_OrderType'] = 'other';
-        vnp_Params['vnp_Amount'] = totalAmount * 100;
+        vnp_Params['vnp_Amount'] = Math.round(totalAmount * 100);
         vnp_Params['vnp_ReturnUrl'] = returnUrl;
         vnp_Params['vnp_IpAddr'] = ipAddr;
         vnp_Params['vnp_CreateDate'] = createDate;
@@ -113,6 +124,8 @@ const createVNPayUrl = async (userId, showtimeId, seatIds, ipAddr) => {
 }
 
 const verifyIpn = async (vnp_Params) => {
+    validateVNPayConfig();
+
     let secureHash = vnp_Params['vnp_SecureHash'];
     delete vnp_Params['vnp_SecureHash'];
     delete vnp_Params['vnp_SecureHashType'];
@@ -126,6 +139,8 @@ const verifyIpn = async (vnp_Params) => {
     if (secureHash === signed) {
         let bookingId = vnp_Params['vnp_TxnRef'];
         let rspCode = vnp_Params['vnp_ResponseCode'];
+        let transactionStatus = vnp_Params['vnp_TransactionStatus'];
+        let paidAmount = Number(vnp_Params['vnp_Amount']);
 
         const booking = await Booking.findByPk(bookingId, {
             include: [{
@@ -138,6 +153,14 @@ const verifyIpn = async (vnp_Params) => {
             Message: 'Order not found'
         };
 
+        const expectedAmount = Math.round(Number(booking.total_amount) * 100);
+        if (!Number.isFinite(paidAmount) || paidAmount !== expectedAmount) {
+            return {
+                RspCode: '04',
+                Message: 'Invalid amount'
+            };
+        }
+
         if (booking.status !== 'pending') {
             return {
                 RspCode: '02',
@@ -149,7 +172,7 @@ const verifyIpn = async (vnp_Params) => {
         const seatIds = booking.tickets.map(t => t.seat_id);
         const redisKeysToDelete = seatIds.map(seatId => `hold_seat:${showtimeId}:${seatId}`);
 
-        if (rspCode === '00') {
+        if (rspCode === '00' && transactionStatus === '00') {
             booking.status = 'paid';
             await booking.save();
             await redis.del(redisKeysToDelete);
