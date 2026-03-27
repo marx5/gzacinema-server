@@ -56,11 +56,12 @@ const cleanupPendingBookings = () => {
 
             const ticketQueryResult = await sequelize.query(
                 `UPDATE Tickets 
-                 SET status = 'cancelled', updatedAt = NOW()
+                 SET status = 'refunded', updatedAt = NOW()
                  WHERE booking_id IN (
                     SELECT id FROM Bookings 
                     WHERE status = 'cancelled' AND createdAt < :fifteenMinutesAgo
-                 )`,
+                 )
+                 AND status = 'valid'`,
                 {
                     replacements: { fifteenMinutesAgo },
                     transaction: t,
