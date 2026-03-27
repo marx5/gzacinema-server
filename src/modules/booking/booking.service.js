@@ -25,7 +25,7 @@ const getShowtimeSeats = async (showtimeId, userId) => {
     const soldTickets = await Ticket.findAll({
         attributes: ['seat_id'],
         include: [{
-            model: require('../../models').Booking,
+            model: Booking,
             as: 'booking',
             attributes: [],
             where: {
@@ -165,42 +165,47 @@ const getAllBookingsAdmin = async (query) => {
     let condition = {};
     if (query.status) condition.status = query.status;
 
-    const { count, rows } = await Booking.findAndCountAll({
-        where: condition,
-        order: [['createdAt', 'DESC']],
-        limit,
-        offset,
-        distinct: true,
-        include: [
-            {
-                model: User,
-                as: 'user',
-                attributes: ['id', 'email', 'full_name', 'phone_number']
-            },
-            {
-                model: Showtime,
-                as: 'showtime',
-                attributes: ['start_time'],
-                include: [
-                    {
-                        model: Movie,
-                        as: 'movie',
-                        attributes: ['title']
-                    },
-                    {
-                        model: Room,
-                        as: 'room',
-                        attributes: ['name']
-                    }
-                ]
-            },
-            {
-                model: Ticket,
-                as: 'tickets',
-                attributes: ['id', 'price', 'status']
-            }
-        ]
-    });
+    const [count, rows] = await Promise.all([
+        Booking.count({
+            where: condition
+        }),
+
+        Booking.findAll({
+            where: condition,
+            order: [['createdAt', 'DESC']],
+            limit,
+            offset,
+            include: [
+                {
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'email', 'full_name', 'phone_number']
+                },
+                {
+                    model: Showtime,
+                    as: 'showtime',
+                    attributes: ['start_time'],
+                    include: [
+                        {
+                            model: Movie,
+                            as: 'movie',
+                            attributes: ['title']
+                        },
+                        {
+                            model: Room,
+                            as: 'room',
+                            attributes: ['name']
+                        }
+                    ]
+                },
+                {
+                    model: Ticket,
+                    as: 'tickets',
+                    attributes: ['id', 'price', 'status']
+                }
+            ]
+        })
+    ]);
 
     return {
         total_items: count,
