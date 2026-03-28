@@ -4,15 +4,15 @@ const AppError = require('../../core/utils/AppError');
 const redis = require('../../config/redis');
 
 const clearMovieCache = async () => {
-    let cursor = '0';
-    do {
-        const result = await redis.scan(cursor, 'MATCH', 'cache:movies*', 'COUNT', 100);
-        cursor = result[0];
-        const keys = result[1];
-        if (keys.length > 0) {
-            await redis.del(keys);
+    try {
+        const cacheKeys = await redis.smembers('movie_cache_index');
+        if (cacheKeys.length > 0) {
+            await redis.del(...cacheKeys);
         }
-    } while (cursor !== '0');
+        await redis.del('movie_cache_index');
+    } catch (error) {
+        console.error('Error clearing movie cache:', error);
+    }
 }
 
 const createMovie = async (movieData) => {
@@ -68,6 +68,9 @@ const getAllMovies = async (query) => {
     }
 
     await redis.set(cacheKey, JSON.stringify(result), 'EX', 3600);
+
+    await redis.sadd('movie_cache_index', cacheKey);
+    await redis.expire('movie_cache_index', 3600);
 
     return result;
 }

@@ -5,41 +5,8 @@ const qs = require('qs');
 const moment = require('moment');
 const AppError = require('../../core/utils/AppError');
 
-const VNPAY_UTC_OFFSET_MINUTES = 7 * 60;
+const { getVNPayDateRange, validateVNPayConfig, sortObject, generateSecureHash } = require('../../core/utils/vnpay');
 
-const getVNPayDateRange = () => {
-    const vnNow = moment().utcOffset(VNPAY_UTC_OFFSET_MINUTES);
-
-    return {
-        createDate: vnNow.format('YYYYMMDDHHmmss'),
-        expireDate: vnNow.clone().add(15, 'minutes').format('YYYYMMDDHHmmss')
-    };
-};
-
-const validateVNPayConfig = () => {
-    const requiredVars = ['VNP_TMNCODE', 'VNP_HASHSECRET', 'VNP_URL', 'VNP_RETURN_URL'];
-    const missingVars = requiredVars.filter((key) => !process.env[key]);
-
-    if (missingVars.length > 0) {
-        throw new AppError(`Missing VNPay configuration: ${missingVars.join(', ')}`, 500);
-    }
-};
-
-function sortObject(obj) {
-    let sorted = {};
-    let str = [];
-    let key;
-    for (key in obj) {
-        if (Object.prototype.hasOwnProperty.call(obj, key)) {
-            str.push(encodeURIComponent(key));
-        }
-    }
-    str.sort();
-    for (key = 0; key < str.length; key++) {
-        sorted[str[key]] = encodeURIComponent(obj[str[key]]).replace(/%20/g, "+");
-    }
-    return sorted;
-}
 
 const createVNPayUrl = async (userId, showtimeId, seatIds, ipAddr) => {
     validateVNPayConfig();
@@ -114,10 +81,7 @@ const createVNPayUrl = async (userId, showtimeId, seatIds, ipAddr) => {
 
         vnp_Params = sortObject(vnp_Params);
 
-        let signData = qs.stringify(vnp_Params, { encode: false });
-        let hmac = crypto.createHmac("sha512", secretKey);
-        let signed = hmac.update(Buffer.from(signData, 'utf-8')).digest("hex");
-        vnp_Params['vnp_SecureHash'] = signed;
+        vnp_Params['vnp_SecureHash'] = generateSecureHash(vnp_Params, secretKey);
 
         vnpUrl += '?' + qs.stringify(vnp_Params, { encode: false });
 
@@ -141,9 +105,7 @@ const verifyIpn = async (vnp_Params) => {
 
     vnp_Params = sortObject(vnp_Params);
     let secretKey = process.env.VNP_HASHSECRET;
-    let signData = qs.stringify(vnp_Params, { encode: false });
-    let hmac = crypto.createHmac("sha512", secretKey);
-    let signed = hmac.update(Buffer.from(signData, 'utf-8')).digest("hex");
+    let signed = generateSecureHash(vnp_Params, secretKey);
 
     if (secureHash === signed) {
         let bookingId = vnp_Params['vnp_TxnRef'];

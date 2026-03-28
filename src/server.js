@@ -21,12 +21,26 @@ const io = new Server(server, {
 io.on('connection', (socket) => {
     console.log(`[Socket] User connected: ${socket.id}`);
 
+    let currentRoom = null;
+
     socket.on('join_showtime', (showtimeId) => {
+        if (currentRoom == showtimeId) return;
+        if (currentRoom) {
+            socket.leave(currentRoom);
+            console.log(`[Socket] ${socket.id} left room: ${currentRoom}`);
+        }
+
         socket.join(showtimeId);
+        currentRoom = showtimeId;
+        console.log(`[Socket] ${socket.id} joined room: ${showtimeId}`);
     });
 
     socket.on('leave_showtime', (showtimeId) => {
-        socket.leave(showtimeId);
+        if (currentRoom === showtimeId) {
+            socket.leave(showtimeId);
+            console.log(`[Socket] ${socket.id} left room: ${showtimeId}`);
+            currentRoom = null;
+        }
     });
 
     socket.on('disconnect', () => {

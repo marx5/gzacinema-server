@@ -10,5 +10,5 @@ router.post('/', verifyToken, verifyAdmin, validate(createCinemaSchema), cinemaC
 router.get('/', cinemaController.getAllCinemas);
 router.get('/:id', cinemaController.getCinemaById);
 router.put('/:id', verifyToken, verifyAdmin, validate(updateCinemaSchema), cinemaController.updateCinema);
-router.delete('/:id', verifyToken, verifyAdmin, validate(updateCinemaSchema), cinemaController.deleteCinema);
+router.delete('/:id', verifyToken, verifyAdmin, cinemaController.deleteCinema);
 module.exports = router;
