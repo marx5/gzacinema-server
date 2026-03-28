@@ -4,9 +4,18 @@ const AppError = require('../../core/utils/AppError');
 const redis = require('../../config/redis');
 
 const getVietnamDateString = () => {
-    return new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Asia/Ho_Chi_Minh'
-    }).format(new Date());
+    const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).formatToParts(new Date());
+
+    const day = parts.find((part) => part.type === 'day')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    const year = parts.find((part) => part.type === 'year')?.value;
+
+    return `${year}-${month}-${day}`;
 };
 
 const clearMovieCache = async () => {
@@ -42,8 +51,13 @@ const getAllMovies = async (query) => {
     const page = parseInt(query.page, 10) || 1;
     const limit = parseInt(query.limit, 10) || 10;
     const offset = (page - 1) * limit;
+    const today = getVietnamDateString();
 
-    const cacheKey = `cache:movies:${status}:${page}:${limit}`;
+    const statusCachePart = (status === 'showing' || status === 'coming_soon')
+        ? `${status}:${today}`
+        : status;
+
+    const cacheKey = `cache:movies:${statusCachePart}:${page}:${limit}`;
 
     const cachedMovies = await redis.get(cacheKey);
     if (cachedMovies) {
@@ -51,7 +65,6 @@ const getAllMovies = async (query) => {
     }
 
     let condition = {};
-    const today = getVietnamDateString();
 
     if (status === 'showing') {
         condition.release_date = { [Op.lte]: today };
