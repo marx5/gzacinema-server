@@ -1,7 +1,13 @@
 const { Movie } = require('../../models');
-const { Op, where } = require('sequelize');
+const { Op } = require('sequelize');
 const AppError = require('../../core/utils/AppError');
 const redis = require('../../config/redis');
+
+const getVietnamDateString = () => {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Ho_Chi_Minh'
+    }).format(new Date());
+};
 
 const clearMovieCache = async () => {
     try {
@@ -45,7 +51,7 @@ const getAllMovies = async (query) => {
     }
 
     let condition = {};
-    const today = new Date().toISOString().split('T')[0];
+    const today = getVietnamDateString();
 
     if (status === 'showing') {
         condition.release_date = { [Op.lte]: today };
