@@ -1,8 +1,16 @@
-const { Ticket } = require('../../models');
+const { Ticket, Seat } = require('../../models');
 const AppError = require('../../core/utils/AppError');
 
 const checkInticket = async (ticketId) => {
-    const ticket = await Ticket.findByPk(ticketId);
+    const ticket = await Ticket.findByPk(ticketId, {
+        include: [
+            {
+                model: Seat,
+                as: 'seat',
+                attributes: ['id', 'row_letter', 'seat_number', 'type']
+            }
+        ]
+    });
     if (!ticket) {
         throw new AppError('Ticket not found');
     }
