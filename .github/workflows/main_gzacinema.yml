@@ -1,4 +1,4 @@
-name: Deploy Server to VPS
+name: Build & Deploy Server to VPS
 
 on:
   push:
@@ -7,8 +7,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --omit=dev
+
+      - name: Verify build
+        run: node --check src/server.js
+
   deploy:
     runs-on: ubuntu-latest
+    needs: build
 
     steps:
       - name: Deploy via SSH
@@ -17,20 +36,11 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
+          port: ${{ secrets.VPS_PORT }}
           script: |
             set -e
-
-            # Di chuyển vào thư mục project
             cd /app/server
-
-            # Pull code mới nhất
             git pull origin main
-
-            # Build và restart container
             docker-compose up --build -d
-
-            # Dọn dẹp image cũ không dùng
             docker image prune -f
-
             echo "✅ Server deployed successfully!"
