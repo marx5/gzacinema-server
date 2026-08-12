@@ -39,7 +39,7 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             set -e
-            cd /workspace/gzacinema/gzacinema-server
+            cd /home/ubuntu/workspace/gzacinema/gzacinema-server
             git pull origin main
             docker compose up --build -d
             docker image prune -f
