@@ -30,7 +30,20 @@ jobs:
     needs: build
 
     steps:
-      - name: Deploy via SSH
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy source to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          source: 'src/,package.json,package-lock.json,Dockerfile,docker-compose.yml'
+          target: '/home/ubuntu/workspace/gzacinema/gzacinema-server'
+
+      - name: Build & restart via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -40,7 +53,6 @@ jobs:
           script: |
             set -e
             cd /home/ubuntu/workspace/gzacinema/gzacinema-server
-            git pull origin main
             docker compose up --build -d
             docker image prune -f
             echo "✅ Server deployed successfully!"
