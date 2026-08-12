@@ -3,14 +3,14 @@ const multer = require('multer');
 require('dotenv').config();
 
 const minioClient = new Minio.Client({
-    endPoint: process.env.MINIO_ENDPOINT || '',
+    endPoint: process.env.MINIO_ENDPOINT || 'minio',
     port: parseInt(process.env.MINIO_PORT, 10) || 9000,
     useSSL: process.env.MINIO_USE_SSL === 'true',
-    accessKey: process.env.MINIO_ACCESS_KEY || '',
-    secretKey: process.env.MINIO_SECRET_KEY || '',
+    accessKey: process.env.MINIO_ACCESS_KEY || 'gza_minio_user',
+    secretKey: process.env.MINIO_SECRET_KEY || 'gza_minio_pass',
 });
 
-const bucketName = process.env.MINIO_BUCKET || '';
+const bucketName = process.env.MINIO_BUCKET || 'gzacinema';
 
 const initBucket = async () => {
     try {
@@ -18,20 +18,20 @@ const initBucket = async () => {
         if (!exists) {
             await minioClient.makeBucket(bucketName);
             console.log(`Bucket '${bucketName}' created.`);
-
-            const policy = {
-                Version: '2012-10-17',
-                Statement: [
-                    {
-                        Effect: 'Allow',
-                        Principal: { AWS: ['*'] },
-                        Action: ['s3:GetObject'],
-                        Resource: [`arn:aws:s3:::${bucketName}/*`],
-                    },
-                ],
-            };
-            await minioClient.setBucketPolicy(bucketName, JSON.stringify(policy));
         }
+
+        const policy = {
+            Version: '2012-10-17',
+            Statement: [
+                {
+                    Effect: 'Allow',
+                    Principal: '*',
+                    Action: ['s3:GetObject'],
+                    Resource: [`arn:aws:s3:::${bucketName}/*`],
+                },
+            ],
+        };
+        await minioClient.setBucketPolicy(bucketName, JSON.stringify(policy));
     } catch (err) {
         console.error('MinIO Init Bucket Error:', err);
     }
@@ -51,7 +51,7 @@ const uploadToMinio = async (fileBuffer, folder, filename, mimetype) => {
         'Content-Type': mimetype || 'image/jpeg',
     });
 
-    const publicUrlBase = process.env.MINIO_PUBLIC_URL || '';
+    const publicUrlBase = process.env.MINIO_PUBLIC_URL || 'https://gza-api.vulv.id.vn/storage';
     return `${publicUrlBase}/${objectName}`;
 };
 
