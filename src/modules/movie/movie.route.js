@@ -5,7 +5,7 @@ const router = express.Router();
 const movieController = require('./movie.controller');
 const showtimeController = require('../showtime/showtime.controller');
 const { verifyToken, verifyAdmin } = require('../../core/middlewares/auth.middleware');
-const { upload } = require('../../config/cloudinary');
+const { upload } = require('../../config/minio');
 const validate = require('../../core/middlewares/validate.middleware');
 const { createMovieSchema, updateMovieSchema } = require('./movie.validation');
 

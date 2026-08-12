@@ -1,13 +1,22 @@
 const movieService = require('./movie.service');
 const catchAsync = require('../../core/utils/catchAsync');
+const { uploadToMinio } = require('../../config/minio');
+
+const generateFilename = (title) => {
+    const safeTitle = (title || 'movie')
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+    return `${safeTitle}-${Date.now()}.webp`;
+};
 
 const addMovie = catchAsync(async (req, res) => {
-    const defaultImg = "https://res.cloudinary.com/dzwdxplyi/image/upload/v1774407280/default-poster_q5afja.jpg";
     const movieData = req.body;
     if (req.file) {
-        movieData.thumbnail = req.file.path;
-    } else {
-        movieData.thumbnail = defaultImg;
+        const filename = generateFilename(req.body.title);
+        movieData.thumbnail = await uploadToMinio(req.file.buffer, 'movies', filename, req.file.mimetype);
     }
 
     const newMovie = await movieService.createMovie(movieData);
@@ -37,7 +46,8 @@ const getMovieDetails = catchAsync(async (req, res) => {
 const updateMovie = catchAsync(async (req, res) => {
     const movieData = req.body;
     if (req.file) {
-        movieData.thumbnail = req.file.path;
+        const filename = generateFilename(req.body.title);
+        movieData.thumbnail = await uploadToMinio(req.file.buffer, 'movies', filename, req.file.mimetype);
     }
     const updatedMovie = await movieService.updateMovie(req.params.id, movieData);
     res.status(200).json({
