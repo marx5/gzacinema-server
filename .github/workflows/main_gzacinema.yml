@@ -39,8 +39,8 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             set -e
-            cd /app/server
+            cd /workspace/gzacinema/gzacinema-server
             git pull origin main
-            docker-compose up --build -d
+            docker compose up --build -d
             docker image prune -f
             echo "✅ Server deployed successfully!"
