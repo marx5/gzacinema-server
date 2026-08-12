@@ -14,6 +14,7 @@ const updateMovieSchema = Joi.object({
     genre: Joi.string().allow('', null),
     description: Joi.string(),
     duration_minutes: Joi.number().integer().min(1),
+    release_date: Joi.date().iso(),
     trailer_url: Joi.string().uri().allow('', null)
 }).min(1);
 

@@ -14,7 +14,7 @@ router.get('/', movieController.getAllMovies);
 router.get('/:id', movieController.getMovieDetails);
 router.get('/:movieId/showtimes', showtimeController.getMovieShowtimes);
 router.put('/:id', verifyToken, verifyAdmin, upload.single('thumbnail'), validate(updateMovieSchema), movieController.updateMovie);
-router.delete('/:id', verifyToken, verifyAdmin, validate(updateMovieSchema), movieController.deleteMovie);
+router.delete('/:id', verifyToken, verifyAdmin, movieController.deleteMovie);
 
 
 module.exports = router;
