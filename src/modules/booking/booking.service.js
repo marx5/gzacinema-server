@@ -1,54 +1,31 @@
-const { sequelize, Showtime, Room, Seat, Ticket, Booking, User, Movie } = require('../../models');
-const redis = require('../../config/redis');
-const { or } = require('sequelize');
+const seatRepository = require('./infrastructure/seat.repository');
+const bookingRepository = require('./infrastructure/booking.repository');
+const redisAdapter = require('../../infrastructure/cache/redis.adapter');
+const eventBus = require('../../core/events/eventBus');
+const DomainEvents = require('../../core/events/domainEvents');
 const AppError = require('../../core/utils/AppError');
-const { raw } = require('express');
+
+const HOLD_DURATION_SECONDS = 300; // 5 phút
 
 const getShowtimeSeats = async (showtimeId, userId) => {
-    const showtime = await Showtime.findByPk(showtimeId, {
-        include: [{
-            model: Room, as: 'room'
-        }]
-    })
+    const showtime = await seatRepository.findShowtimeWithRoom(showtimeId);
 
     if (!showtime) {
         throw new AppError('Showtime not found', 404);
     }
 
-    const seats = await Seat.findAll({
-        where: {
-            room_id: showtime.room_id
-        },
-        order: [['row_letter', 'ASC'], ['seat_number', 'ASC']]
-    })
-
-    const soldTickets = await Ticket.findAll({
-        attributes: ['seat_id'],
-        include: [{
-            model: Booking,
-            as: 'booking',
-            attributes: [],
-            where: {
-                showtime_id: showtimeId,
-                status: 'paid'
-            }
-        }],
-        raw: true
-    })
-
-    const soldSeatIds = soldTickets.map(ticket => ticket.seat_id);
+    const seats = await seatRepository.findSeatsByRoomId(showtime.room_id);
+    const soldSeatIds = await seatRepository.findSoldSeatIds(showtimeId);
 
     const redisKeys = seats.map(seat => `hold_seat:${showtimeId}:${seat.id}`);
-
-    const heldSeatsData = await redis.mget(redisKeys);
+    const heldSeatsData = await redisAdapter.mget(redisKeys);
 
     const seatMap = seats.map((seat, index) => {
         let seatStatus = 'available';
 
         if (soldSeatIds.includes(seat.id)) {
             seatStatus = 'booked';
-        }
-        else if (heldSeatsData[index] !== null) {
+        } else if (heldSeatsData[index] !== null) {
             if (heldSeatsData[index] === userId) {
                 seatStatus = 'held_by_me';
             } else {
@@ -62,8 +39,8 @@ const getShowtimeSeats = async (showtimeId, userId) => {
             seat_number: seat.seat_number,
             type: seat.type,
             status: seatStatus
-        }
-    })
+        };
+    });
 
     return {
         showtime_info: {
@@ -73,89 +50,78 @@ const getShowtimeSeats = async (showtimeId, userId) => {
             base_price: showtime.base_price
         },
         seats: seatMap
-    }
-}
+    };
+};
 
 const holdSeat = async (showtimeId, seatId, userId) => {
     const redisKey = `hold_seat:${showtimeId}:${seatId}`;
 
-    const existingHold = await redis.get(redisKey);
+    const existingHold = await redisAdapter.get(redisKey);
     if (existingHold) {
         if (existingHold === userId) {
-            await redis.expire(redisKey, 300);
+            await redisAdapter.expire(redisKey, HOLD_DURATION_SECONDS);
             return {
                 message: 'Hold extended',
                 showtime_id: showtimeId,
                 seat_id: seatId,
-                expire_time: 300
+                expire_time: HOLD_DURATION_SECONDS
             };
         } else {
             throw new AppError('This seat is no longer available', 400);
         }
     }
 
-    const showtime = await Showtime.findByPk(showtimeId);
+    const showtime = await seatRepository.findShowtimeWithRoom(showtimeId);
     if (!showtime) throw new AppError('Showtime not found', 404);
 
-    const seat = await Seat.findByPk(seatId);
+    const seat = await seatRepository.findSeatById(seatId);
     if (!seat || seat.room_id !== showtime.room_id) {
         throw new AppError('Seat not found or invalid room', 404);
     }
 
-    const isSold = await Ticket.findOne({
-        where: { seat_id: seatId },
-        include: [{
-            model: Booking,
-            as: 'booking',
-            where: {
-                showtime_id: showtimeId,
-                status: 'paid'
-            }
-        }]
-    });
-
+    const isSold = await seatRepository.isSeatSold(showtimeId, seatId);
     if (isSold) throw new AppError('This seat is no longer available', 400);
 
-    const setNxResult = await redis.set(redisKey, userId, 'EX', 300, 'NX');
-    if (!setNxResult) {
+    const isSet = await redisAdapter.setNx(redisKey, userId, HOLD_DURATION_SECONDS);
+    if (!isSet) {
         throw new AppError('This seat is no longer available', 400);
     }
 
-    if (global.io) {
-        global.io.to(showtimeId).emit('seat_status_changed', {
-            id: seatId,
-            status: 'held',
-            held_by_user: userId
-        });
-    }
+    // Phát Domain Event qua EventBus thay vì gọi trực tiếp global.io
+    eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
+        showtimeId,
+        seatId,
+        status: 'held',
+        heldByUserId: userId
+    });
 
     return {
         message: 'Seat held successfully, hold will expire in 5 minutes',
         showtime_id: showtimeId,
         seat_id: seatId,
-        expire_time: 300
-    }
-}
+        expire_time: HOLD_DURATION_SECONDS
+    };
+};
 
 const unholdSeat = async (showtimeId, seatId, userId) => {
     const redisKey = `hold_seat:${showtimeId}:${seatId}`;
-    const existingHold = await redis.get(redisKey);
+    const existingHold = await redisAdapter.get(redisKey);
 
     if (existingHold === userId) {
-        await redis.del(redisKey);
+        await redisAdapter.del(redisKey);
 
-        if (global.io) {
-            global.io.to(showtimeId).emit('seat_status_changed', {
-                id: seatId,
-                status: 'available'
-            });
-        }
+        // Phát Domain Event qua EventBus thay vì gọi trực tiếp global.io
+        eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
+            showtimeId,
+            seatId,
+            status: 'available'
+        });
     }
 
     return {
         message: 'Seat released successfully'
     };
-}
+};
 
 const getAllBookingsAdmin = async (query) => {
     const page = parseInt(query.page, 10) || 1;
@@ -165,54 +131,12 @@ const getAllBookingsAdmin = async (query) => {
     let condition = {};
     if (query.status) condition.status = query.status;
 
-    const [count, rows] = await Promise.all([
-        Booking.count({
-            where: condition
-        }),
-
-        Booking.findAll({
-            where: condition,
-            order: [['createdAt', 'DESC']],
-            limit,
-            offset,
-            include: [
-                {
-                    model: User,
-                    as: 'user',
-                    attributes: ['id', 'email', 'full_name', 'phone_number']
-                },
-                {
-                    model: Showtime,
-                    as: 'showtime',
-                    attributes: ['start_time'],
-                    include: [
-                        {
-                            model: Movie,
-                            as: 'movie',
-                            attributes: ['title']
-                        },
-                        {
-                            model: Room,
-                            as: 'room',
-                            attributes: ['name']
-                        }
-                    ]
-                },
-                {
-                    model: Ticket,
-                    as: 'tickets',
-                    attributes: ['id', 'price', 'status']
-                }
-            ]
-        })
-    ]);
-
-    return {
-        total_items: count,
-        total_pages: Math.ceil(count / limit),
-        current_page: page,
-        bookings: rows
-    };
+    return await bookingRepository.findAdminBookings({
+        condition,
+        limit,
+        offset,
+        page
+    });
 };
 
 module.exports = {
@@ -220,4 +144,4 @@ module.exports = {
     holdSeat,
     unholdSeat,
     getAllBookingsAdmin
-}
+};
