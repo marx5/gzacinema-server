@@ -1,46 +1,15 @@
 const bcrypt = require('bcrypt');
-const { where } = require('sequelize');
-const { Booking, Ticket, Seat, Showtime, Movie, Room, User } = require('../../models');
+const userRepository = require('./infrastructure/user.repository');
+const AppError = require('../../core/utils/AppError');
 
 const getUserHistory = async (userId, query = {}) => {
     const page = parseInt(query.page, 10) || 1;
     const limit = parseInt(query.limit, 10) || 10;
     const offset = (page - 1) * limit;
 
-    const { count, rows } = await Booking.findAndCountAll({
-        where: {
-            user_id: userId,
-            status: 'paid'
-        },
-        order: [['createdAt', 'DESC']],
+    const { count, rows } = await userRepository.findUserHistory(userId, {
         limit,
-        offset,
-        distinct: true,
-        include: [{
-            model: Showtime,
-            as: 'showtime',
-            include: [
-                {
-                    model: Movie,
-                    as: 'movie',
-                    attributes: ['title', 'duration_minutes']
-                },
-                {
-                    model: Room,
-                    as: 'room',
-                    attributes: ['name']
-                }
-            ]
-        },
-        {
-            model: Ticket,
-            as: 'tickets',
-            include: [{
-                model: Seat,
-                as: 'seat',
-                attributes: ['row_letter', 'seat_number', 'type']
-            }]
-        }]
+        offset
     });
 
     return {
@@ -48,11 +17,11 @@ const getUserHistory = async (userId, query = {}) => {
         total_pages: Math.ceil(count / limit),
         current_page: page,
         history: rows
-    }
-}
+    };
+};
 
 const updateProfile = async (userId, data) => {
-    const user = await User.findByPk(userId);
+    const user = await userRepository.findById(userId);
     if (!user) throw new AppError('User not found', 404);
 
     if (data.full_name) user.full_name = data.full_name;
@@ -76,4 +45,4 @@ const updateProfile = async (userId, data) => {
 module.exports = {
     getUserHistory,
     updateProfile
-}
+};

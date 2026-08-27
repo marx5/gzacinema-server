@@ -63,6 +63,30 @@ class RedisCacheAdapter {
     }
 
     /**
+     * Thêm một hoặc nhiều thành viên vào một set
+     * @param {string} key 
+     * @param {string|string[]} members 
+     * @returns {Promise<number>}
+     */
+    async sadd(key, members) {
+        if (!members) return 0;
+        if (Array.isArray(members)) {
+            if (members.length === 0) return 0;
+            return await redisClient.sadd(key, ...members);
+        }
+        return await redisClient.sadd(key, members);
+    }
+
+    /**
+     * Lấy tất cả thành viên của một set
+     * @param {string} key 
+     * @returns {Promise<string[]>}
+     */
+    async smembers(key) {
+        return await redisClient.smembers(key);
+    }
+
+    /**
      * Xóa một hoặc nhiều keys
      * @param {string|string[]} keys 
      * @returns {Promise<number>}
@@ -78,3 +102,4 @@ class RedisCacheAdapter {
 }
 
 module.exports = new RedisCacheAdapter();
+

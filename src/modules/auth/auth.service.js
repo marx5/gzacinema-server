@@ -1,17 +1,17 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { User } = require('../../models');
+const userRepository = require('../user/infrastructure/user.repository');
 const AppError = require('../../core/utils/AppError');
 
 const registerUser = async (full_name, email, password) => {
-    const existingUser = await User.findOne({ where: { email } });
+    const existingUser = await userRepository.findByEmail(email);
     if (existingUser) {
         throw new AppError('Email already in use', 400);
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const newUser = await User.create({
+    const newUser = await userRepository.create({
         full_name,
         email,
         password: hashedPassword,
@@ -21,7 +21,7 @@ const registerUser = async (full_name, email, password) => {
 };
 
 const loginUser = async (email, password) => {
-    const user = await User.findOne({ where: { email } });
+    const user = await userRepository.findByEmail(email);
     if (!user) {
         throw new AppError('Invalid email or password', 400);
     }
@@ -45,7 +45,7 @@ const loginUser = async (email, password) => {
     });
 
     return { user, accessToken, refreshToken };
-}
+};
 
 const refreshAccessToken = async (refreshToken) => {
     if (!refreshToken) {
@@ -54,7 +54,7 @@ const refreshAccessToken = async (refreshToken) => {
 
     try {
         const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-        const user = await User.findByPk(decoded.id);
+        const user = await userRepository.findById(decoded.id);
         if (!user) {
             throw new AppError('User not found', 404);
         }
@@ -64,15 +64,15 @@ const refreshAccessToken = async (refreshToken) => {
             role: user.role
         }, process.env.JWT_ACCESS_SECRET, {
             expiresIn: process.env.JWT_ACCESS_EXPIRES_IN
-        })
+        });
         return newAccessToken;
     } catch (error) {
         throw new AppError('Invalid or expired refresh token', 401);
     }
-}
+};
 
 module.exports = {
     registerUser,
     loginUser,
     refreshAccessToken
-};
+};

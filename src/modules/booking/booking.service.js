@@ -111,17 +111,49 @@ const holdSeat = async (showtimeId, seatIdsInput, userId) => {
         }
     }
 
-    // 7. Ghi nhận giữ ghế vào Redis và phát Domain Event
-    for (const seat of targetSeats) {
-        const redisKey = `hold_seat:${showtimeId}:${seat.id}`;
-        await redisAdapter.set(redisKey, userId, HOLD_DURATION_SECONDS);
+    // 7. Ghi nhận giữ ghế vào Redis một cách nguyên tử (Atomic Operation) kèm Rollback an toàn
+    const successfullyHeldSeats = [];
+    try {
+        for (const seat of targetSeats) {
+            const redisKey = `hold_seat:${showtimeId}:${seat.id}`;
+            const existingHolder = await redisAdapter.get(redisKey);
 
-        eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
-            showtimeId,
-            seatId: seat.id,
-            status: 'held',
-            heldByUserId: userId
-        });
+            if (existingHolder === userId) {
+                // Nếu chính user này đang giữ, gia hạn TTL
+                await redisAdapter.expire(redisKey, HOLD_DURATION_SECONDS);
+                successfullyHeldSeats.push(seat);
+            } else {
+                // Cố gắng giữ ghế nguyên tử bằng SET NX (chỉ thành công nếu key chưa tồn tại)
+                const isAcquired = await redisAdapter.setNx(redisKey, userId, HOLD_DURATION_SECONDS);
+                if (!isAcquired) {
+                    throw new AppError(
+                        `Ghế ${seat.row_letter}${seat.seat_number} vừa được người khác giữ trước một khoảnh khắc!`,
+                        400
+                    );
+                }
+                successfullyHeldSeats.push(seat);
+            }
+        }
+
+        // Phát Domain Event cho các ghế đã giữ thành công
+        for (const seat of successfullyHeldSeats) {
+            eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
+                showtimeId,
+                seatId: seat.id,
+                status: 'held',
+                heldByUserId: userId
+            });
+        }
+    } catch (error) {
+        // Rollback: Giải phóng các ghế đã lỡ giữ trong lần request này nếu có 1 ghế thất bại
+        for (const seat of successfullyHeldSeats) {
+            const redisKey = `hold_seat:${showtimeId}:${seat.id}`;
+            const holder = await redisAdapter.get(redisKey);
+            if (holder === userId) {
+                await redisAdapter.del(redisKey);
+            }
+        }
+        throw error;
     }
 
     return {
@@ -131,6 +163,7 @@ const holdSeat = async (showtimeId, seatIdsInput, userId) => {
         expire_time: HOLD_DURATION_SECONDS
     };
 };
+
 
 const unholdSeat = async (showtimeId, seatIdsInput, userId) => {
     const seatIds = Array.isArray(seatIdsInput) ? seatIdsInput : [seatIdsInput];

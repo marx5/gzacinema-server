@@ -1,7 +1,7 @@
-const { Movie, Showtime, Booking, Ticket, sequelize } = require('../../models');
-const { Op } = require('sequelize');
+const movieRepository = require('./infrastructure/movie.repository');
+const redisAdapter = require('../../infrastructure/cache/redis.adapter');
 const AppError = require('../../core/utils/AppError');
-const redis = require('../../config/redis');
+const { Op } = require('sequelize');
 
 const getVietnamDateString = () => {
     const parts = new Intl.DateTimeFormat('en-GB', {
@@ -20,19 +20,19 @@ const getVietnamDateString = () => {
 
 const clearMovieCache = async () => {
     try {
-        const cacheKeys = await redis.smembers('movie_cache_index');
-        if (cacheKeys.length > 0) {
-            await redis.del(...cacheKeys);
+        const cacheKeys = await redisAdapter.smembers('movie_cache_index');
+        if (cacheKeys && cacheKeys.length > 0) {
+            await redisAdapter.del(cacheKeys);
         }
-        await redis.del('movie_cache_index');
+        await redisAdapter.del('movie_cache_index');
     } catch (error) {
         console.error('Error clearing movie cache:', error);
     }
-}
+};
 
 const createMovie = async (movieData) => {
     const { title, genre, description, duration_minutes, release_date, thumbnail, trailer_url } = movieData;
-    const newMovie = await Movie.create({
+    const newMovie = await movieRepository.create({
         title,
         genre,
         description,
@@ -40,11 +40,11 @@ const createMovie = async (movieData) => {
         release_date,
         thumbnail,
         trailer_url
-    })
+    });
 
     await clearMovieCache();
     return newMovie;
-}
+};
 
 const getAllMovies = async (query) => {
     const status = query.status || 'all';
@@ -59,7 +59,7 @@ const getAllMovies = async (query) => {
 
     const cacheKey = `cache:movies:${statusCachePart}:${page}:${limit}`;
 
-    const cachedMovies = await redis.get(cacheKey);
+    const cachedMovies = await redisAdapter.get(cacheKey);
     if (cachedMovies) {
         return JSON.parse(cachedMovies);
     }
@@ -72,109 +72,70 @@ const getAllMovies = async (query) => {
         condition.release_date = { [Op.gt]: today };
     }
 
-    const { count, rows } = await Movie.findAndCountAll({
-        where: condition,
+    const { count, rows } = await movieRepository.findAndCountAll({
+        condition,
         order: [['release_date', 'DESC']],
         limit,
         offset
-    })
+    });
 
     const result = {
         total_items: count,
         total_pages: Math.ceil(count / limit),
         current_page: page,
         movie: rows
-    }
+    };
 
-    await redis.set(cacheKey, JSON.stringify(result), 'EX', 3600);
-
-    await redis.sadd('movie_cache_index', cacheKey);
-    await redis.expire('movie_cache_index', 3600);
+    await redisAdapter.set(cacheKey, JSON.stringify(result), 3600);
+    await redisAdapter.sadd('movie_cache_index', cacheKey);
+    await redisAdapter.expire('movie_cache_index', 3600);
 
     return result;
-}
+};
 
 const getTopRankingMovies = async (limit = 10) => {
     const cacheKey = `cache:movies:top_ranking:${limit}`;
     try {
-        const cached = await redis.get(cacheKey);
+        const cached = await redisAdapter.get(cacheKey);
         if (cached) return JSON.parse(cached);
     } catch (err) {
         console.warn('Redis cache error:', err);
     }
 
-    const query = `
-        SELECT 
-            m.id,
-            m.title,
-            m.genre,
-            m.description,
-            m.duration_minutes,
-            m.release_date,
-            m.thumbnail,
-            m.trailer_url,
-            COUNT(DISTINCT t.id) AS total_tickets,
-            COALESCE(SUM(t.price), 0) AS total_revenue,
-            COALESCE(MIN(b.createdAt), m.createdAt) AS first_revenue_time
-        FROM movies m
-        LEFT JOIN showtimes s ON s.movie_id = m.id AND s.deletedAt IS NULL
-        LEFT JOIN bookings b ON b.showtime_id = s.id AND b.status = 'paid' AND b.deletedAt IS NULL
-        LEFT JOIN tickets t ON t.booking_id = b.id AND t.status IN ('valid', 'used') AND t.deletedAt IS NULL
-        WHERE m.deletedAt IS NULL
-        GROUP BY m.id, m.title, m.genre, m.description, m.duration_minutes, m.release_date, m.thumbnail, m.trailer_url, m.createdAt
-        ORDER BY 
-            total_tickets DESC,
-            total_revenue DESC,
-            first_revenue_time ASC
-        LIMIT :limit;
-    `;
-
-    const rankingMovies = await sequelize.query(query, {
-        replacements: { limit: parseInt(limit, 10) || 10 },
-        type: sequelize.QueryTypes.SELECT
-    });
-
-    const result = rankingMovies.map((movie, index) => ({
-        ...movie,
-        rank: index + 1,
-        total_tickets: parseInt(movie.total_tickets, 10) || 0,
-        total_revenue: parseFloat(movie.total_revenue) || 0
-    }));
+    const result = await movieRepository.findTopRanking(limit);
 
     try {
-        await redis.set(cacheKey, JSON.stringify(result), 'EX', 300);
-        await redis.sadd('movie_cache_index', cacheKey);
+        await redisAdapter.set(cacheKey, JSON.stringify(result), 300);
+        await redisAdapter.sadd('movie_cache_index', cacheKey);
     } catch (err) {
         console.warn('Redis save error:', err);
     }
 
     return result;
-}
+};
 
 const getMovieById = async (movieId) => {
-    const movie = await Movie.findByPk(movieId);
+    const movie = await movieRepository.findById(movieId);
     if (!movie) throw new AppError('Movie not found', 404);
     return movie;
-}
+};
 
 const updateMovie = async (movieId, movieData) => {
-    const movie = await Movie.findByPk(movieId);
+    const movie = await movieRepository.update(movieId, movieData);
     if (!movie) {
         throw new AppError('Movie not found', 404);
     }
-    await movie.update(movieData);
     await clearMovieCache();
     return movie;
-}
+};
 
 const deleteMovie = async (movieId) => {
-    const movie = await Movie.findByPk(movieId);
+    const movie = await movieRepository.delete(movieId);
     if (!movie) {
         throw new AppError('Movie not found', 404);
     }
-    await movie.destroy();
     await clearMovieCache();
-}
+};
 
 module.exports = {
     createMovie,
@@ -183,4 +144,4 @@ module.exports = {
     getMovieById,
     updateMovie,
     deleteMovie
-}
+};
