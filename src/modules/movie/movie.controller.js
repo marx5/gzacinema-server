@@ -35,6 +35,15 @@ const getAllMovies = catchAsync(async (req, res) => {
     });
 })
 
+const getTopRankingMovies = catchAsync(async (req, res) => {
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const rankingMovies = await movieService.getTopRankingMovies(limit);
+    res.status(200).json({
+        status: 'success',
+        data: rankingMovies
+    });
+})
+
 const getMovieDetails = catchAsync(async (req, res) => {
     const movie = await movieService.getMovieById(req.params.id);
     res.status(200).json({
@@ -67,6 +76,7 @@ const deleteMovie = catchAsync(async (req, res) => {
 module.exports = {
     addMovie,
     getAllMovies,
+    getTopRankingMovies,
     getMovieDetails,
     updateMovie,
     deleteMovie

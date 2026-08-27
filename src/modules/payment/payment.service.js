@@ -1,6 +1,7 @@
 const seatRepository = require('../booking/infrastructure/seat.repository');
 const bookingRepository = require('../booking/infrastructure/booking.repository');
 const { calculateSeatPrice } = require('../booking/domain/seatPricing');
+const { areSeatsSameType, areSeatsConnected } = require('../booking/domain/seatValidation');
 const redisAdapter = require('../../infrastructure/cache/redis.adapter');
 const vnpayGateway = require('../../infrastructure/gateways/vnpay.gateway');
 const eventBus = require('../../core/events/eventBus');
@@ -25,6 +26,18 @@ const createVNPayUrl = async (userId, showtimeId, seatIds, ipAddr) => {
     }
 
     const seats = await seatRepository.findSeatsByIds(seatIds);
+    if (!seats || seats.length === 0) {
+        throw new AppError('No seats selected', 400);
+    }
+
+    if (!areSeatsSameType(seats)) {
+        throw new AppError('Chỉ được chọn các ghế cùng loại trong một lần đặt!', 400);
+    }
+
+    if (!areSeatsConnected(seats)) {
+        throw new AppError('Các ghế được chọn phải liền kề nhau (trên dưới, trái phải) và không được cách ghế!', 400);
+    }
+
     let totalAmount = 0;
     const ticketDataToInsert = [];
 

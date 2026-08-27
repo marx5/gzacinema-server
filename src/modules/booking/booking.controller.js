@@ -16,13 +16,15 @@ const getSeats = catchAsync(async (req, res) => {
 
 const holdSeat = catchAsync(async (req, res) => {
     const userId = req.user.id;
-    const { showtimeId, seatId } = req.body;
+    const { showtimeId, seatId, seatIds } = req.body;
 
-    if (!showtimeId || !seatId) {
-        throw new AppError('showtimeId và seatId là bắt buộc', 400);
+    const targetSeatIds = Array.isArray(seatIds) ? seatIds : (seatId ? [seatId] : []);
+
+    if (!showtimeId || targetSeatIds.length === 0) {
+        throw new AppError('showtimeId và seatId/seatIds là bắt buộc', 400);
     }
 
-    const result = await bookingService.holdSeat(showtimeId, seatId, userId);
+    const result = await bookingService.holdSeat(showtimeId, targetSeatIds, userId);
 
     res.status(200).json({
         status: 'success',
@@ -32,13 +34,15 @@ const holdSeat = catchAsync(async (req, res) => {
 
 const unholdSeat = catchAsync(async (req, res) => {
     const userId = req.user.id;
-    const { showtimeId, seatId } = req.body;
+    const { showtimeId, seatId, seatIds } = req.body;
 
-    if (!showtimeId || !seatId) {
-        throw new AppError('showtimeId và seatId là bắt buộc', 400);
+    const targetSeatIds = Array.isArray(seatIds) ? seatIds : (seatId ? [seatId] : []);
+
+    if (!showtimeId || targetSeatIds.length === 0) {
+        throw new AppError('showtimeId và seatId/seatIds là bắt buộc', 400);
     }
 
-    const result = await bookingService.unholdSeat(showtimeId, seatId, userId);
+    const result = await bookingService.unholdSeat(showtimeId, targetSeatIds, userId);
 
     res.status(200).json({
         status: 'success',

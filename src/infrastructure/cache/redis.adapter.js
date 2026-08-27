@@ -25,6 +25,22 @@ class RedisCacheAdapter {
     }
 
     /**
+     * Đặt giá trị cho key với thời gian hết hạn (seconds)
+     * @param {string} key 
+     * @param {string|number} value 
+     * @param {number} ttlSeconds 
+     * @returns {Promise<boolean>}
+     */
+    async set(key, value, ttlSeconds) {
+        if (ttlSeconds) {
+            const result = await redisClient.set(key, value, 'EX', ttlSeconds);
+            return result === 'OK';
+        }
+        const result = await redisClient.set(key, value);
+        return result === 'OK';
+    }
+
+    /**
      * Đặt giá trị cho key nếu chưa tồn tại (SET NX) với thời gian hết hạn (seconds)
      * @param {string} key 
      * @param {string|number} value 

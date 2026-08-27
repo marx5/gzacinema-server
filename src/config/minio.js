@@ -2,12 +2,27 @@ const Minio = require('minio');
 const multer = require('multer');
 require('dotenv').config();
 
+let endPoint = process.env.MINIO_ENDPOINT || 'localhost';
+let port = parseInt(process.env.MINIO_PORT, 10) || 9000;
+let useSSL = process.env.MINIO_USE_SSL === 'true' || port === 443;
+
+if (endPoint.startsWith('http://') || endPoint.startsWith('https://')) {
+    try {
+        const parsedUrl = new URL(endPoint);
+        endPoint = parsedUrl.hostname;
+        if (parsedUrl.port) port = parseInt(parsedUrl.port, 10);
+        if (parsedUrl.protocol === 'https:') useSSL = true;
+    } catch {
+        endPoint = endPoint.replace(/^https?:\/\//, '').split(':')[0];
+    }
+}
+
 const minioClient = new Minio.Client({
-    endPoint: process.env.MINIO_ENDPOINT || 'minio',
-    port: parseInt(process.env.MINIO_PORT, 10) || 9000,
-    useSSL: process.env.MINIO_USE_SSL === 'true',
-    accessKey: process.env.MINIO_ACCESS_KEY || 'gza_minio_user',
-    secretKey: process.env.MINIO_SECRET_KEY || 'gza_minio_pass',
+    endPoint,
+    port,
+    useSSL,
+    accessKey: process.env.MINIO_ACCESS_KEY || 'gzaminio',
+    secretKey: process.env.MINIO_SECRET_KEY || 'VanVu#2003',
 });
 
 const bucketName = process.env.MINIO_BUCKET || 'gzacinema';

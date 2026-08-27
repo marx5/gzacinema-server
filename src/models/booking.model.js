@@ -16,6 +16,7 @@ module.exports = (sequelize, DataTypes) => {
     }, {
         tableName: 'bookings',
         timestamps: true,
+        paranoid: true,
         indexes: [
             { fields: ['user_id'] },
             { fields: ['showtime_id'] },

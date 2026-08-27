@@ -49,8 +49,8 @@ Role mapping:
 
 ### 4.3 Users (verifyToken)
 
-1. GET /api/users/me
-2. PUT /api/users/me
+1. GET /api/users/profile (hoặc /api/users/me)
+2. PUT /api/users/profile (hoặc /api/users/me)
 3. GET /api/users/history
 
 ### 4.4 Cinemas

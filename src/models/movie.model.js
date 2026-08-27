@@ -34,6 +34,7 @@ module.exports = (sequelize, DataTypes) => {
     }, {
         tableName: 'movies',
         timestamps: true,
+        paranoid: true,
         indexes: [
             { fields: ['release_date'] }
         ]

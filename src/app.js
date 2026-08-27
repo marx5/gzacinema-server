@@ -34,7 +34,9 @@ app.set('trust proxy', Number.isNaN(trustProxy) ? 1 : trustProxy);
 
 app.use(compression());
 
-app.use(morgan(':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" - :response-time ms'));
+app.use(morgan('dev', {
+    skip: (req) => req.method === 'OPTIONS'
+}));
 
 app.use(helmet());
 app.use(cors({

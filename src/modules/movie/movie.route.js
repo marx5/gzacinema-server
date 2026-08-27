@@ -11,6 +11,7 @@ const { createMovieSchema, updateMovieSchema } = require('./movie.validation');
 
 router.post('/', verifyToken, verifyAdmin, upload.single('thumbnail'), validate(createMovieSchema), movieController.addMovie);
 router.get('/', movieController.getAllMovies);
+router.get('/ranking', movieController.getTopRankingMovies);
 router.get('/:id', movieController.getMovieDetails);
 router.get('/:movieId/showtimes', showtimeController.getMovieShowtimes);
 router.put('/:id', verifyToken, verifyAdmin, upload.single('thumbnail'), validate(updateMovieSchema), movieController.updateMovie);

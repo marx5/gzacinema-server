@@ -1,4 +1,4 @@
-const { Movie } = require('../../models');
+const { Movie, Showtime, Booking, Ticket, sequelize } = require('../../models');
 const { Op } = require('sequelize');
 const AppError = require('../../core/utils/AppError');
 const redis = require('../../config/redis');
@@ -94,6 +94,63 @@ const getAllMovies = async (query) => {
     return result;
 }
 
+const getTopRankingMovies = async (limit = 10) => {
+    const cacheKey = `cache:movies:top_ranking:${limit}`;
+    try {
+        const cached = await redis.get(cacheKey);
+        if (cached) return JSON.parse(cached);
+    } catch (err) {
+        console.warn('Redis cache error:', err);
+    }
+
+    const query = `
+        SELECT 
+            m.id,
+            m.title,
+            m.genre,
+            m.description,
+            m.duration_minutes,
+            m.release_date,
+            m.thumbnail,
+            m.trailer_url,
+            COUNT(DISTINCT t.id) AS total_tickets,
+            COALESCE(SUM(t.price), 0) AS total_revenue,
+            COALESCE(MIN(b.createdAt), m.createdAt) AS first_revenue_time
+        FROM movies m
+        LEFT JOIN showtimes s ON s.movie_id = m.id AND s.deletedAt IS NULL
+        LEFT JOIN bookings b ON b.showtime_id = s.id AND b.status = 'paid' AND b.deletedAt IS NULL
+        LEFT JOIN tickets t ON t.booking_id = b.id AND t.status IN ('valid', 'used') AND t.deletedAt IS NULL
+        WHERE m.deletedAt IS NULL
+        GROUP BY m.id, m.title, m.genre, m.description, m.duration_minutes, m.release_date, m.thumbnail, m.trailer_url, m.createdAt
+        ORDER BY 
+            total_tickets DESC,
+            total_revenue DESC,
+            first_revenue_time ASC
+        LIMIT :limit;
+    `;
+
+    const rankingMovies = await sequelize.query(query, {
+        replacements: { limit: parseInt(limit, 10) || 10 },
+        type: sequelize.QueryTypes.SELECT
+    });
+
+    const result = rankingMovies.map((movie, index) => ({
+        ...movie,
+        rank: index + 1,
+        total_tickets: parseInt(movie.total_tickets, 10) || 0,
+        total_revenue: parseFloat(movie.total_revenue) || 0
+    }));
+
+    try {
+        await redis.set(cacheKey, JSON.stringify(result), 'EX', 300);
+        await redis.sadd('movie_cache_index', cacheKey);
+    } catch (err) {
+        console.warn('Redis save error:', err);
+    }
+
+    return result;
+}
+
 const getMovieById = async (movieId) => {
     const movie = await Movie.findByPk(movieId);
     if (!movie) throw new AppError('Movie not found', 404);
@@ -122,6 +179,7 @@ const deleteMovie = async (movieId) => {
 module.exports = {
     createMovie,
     getAllMovies,
+    getTopRankingMovies,
     getMovieById,
     updateMovie,
     deleteMovie

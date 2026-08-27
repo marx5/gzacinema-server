@@ -1,5 +1,6 @@
 const seatRepository = require('./infrastructure/seat.repository');
 const bookingRepository = require('./infrastructure/booking.repository');
+const { areSeatsSameType, areSeatsConnected, isNewSeatsAdjacentToExisting } = require('./domain/seatValidation');
 const redisAdapter = require('../../infrastructure/cache/redis.adapter');
 const eventBus = require('../../core/events/eventBus');
 const DomainEvents = require('../../core/events/domainEvents');
@@ -53,69 +54,103 @@ const getShowtimeSeats = async (showtimeId, userId) => {
     };
 };
 
-const holdSeat = async (showtimeId, seatId, userId) => {
-    const redisKey = `hold_seat:${showtimeId}:${seatId}`;
-
-    const existingHold = await redisAdapter.get(redisKey);
-    if (existingHold) {
-        if (existingHold === userId) {
-            await redisAdapter.expire(redisKey, HOLD_DURATION_SECONDS);
-            return {
-                message: 'Hold extended',
-                showtime_id: showtimeId,
-                seat_id: seatId,
-                expire_time: HOLD_DURATION_SECONDS
-            };
-        } else {
-            throw new AppError('This seat is no longer available', 400);
-        }
-    }
+const holdSeat = async (showtimeId, seatIdsInput, userId) => {
+    const seatIds = Array.isArray(seatIdsInput) ? seatIdsInput : [seatIdsInput];
+    if (seatIds.length === 0) throw new AppError('No seats provided', 400);
 
     const showtime = await seatRepository.findShowtimeWithRoom(showtimeId);
     if (!showtime) throw new AppError('Showtime not found', 404);
 
-    const seat = await seatRepository.findSeatById(seatId);
-    if (!seat || seat.room_id !== showtime.room_id) {
-        throw new AppError('Seat not found or invalid room', 404);
+    const roomSeats = await seatRepository.findSeatsByRoomId(showtime.room_id);
+    const soldSeatIds = await seatRepository.findSoldSeatIds(showtimeId);
+
+    // 1. Tìm các đối tượng ghế tương ứng trong phòng
+    const targetSeats = roomSeats.filter(s => seatIds.includes(s.id));
+    if (targetSeats.length !== seatIds.length) {
+        throw new AppError('Một số ghế không tồn tại trong phòng chiếu', 404);
     }
 
-    const isSold = await seatRepository.isSeatSold(showtimeId, seatId);
-    if (isSold) throw new AppError('This seat is no longer available', 400);
-
-    const isSet = await redisAdapter.setNx(redisKey, userId, HOLD_DURATION_SECONDS);
-    if (!isSet) {
-        throw new AppError('This seat is no longer available', 400);
+    // 2. Kiểm tra xem có ghế nào đã bán chưa
+    const isAnySold = targetSeats.some(s => soldSeatIds.includes(s.id));
+    if (isAnySold) {
+        throw new AppError('Ghế này đã được bán!', 400);
     }
 
-    // Phát Domain Event qua EventBus thay vì gọi trực tiếp global.io
-    eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
-        showtimeId,
-        seatId,
-        status: 'held',
-        heldByUserId: userId
-    });
+    // 3. Kiểm tra tính cùng loại của chính nhóm ghế mới
+    if (!areSeatsSameType(targetSeats)) {
+        throw new AppError('Chỉ được chọn các ghế cùng loại trong một lần đặt!', 400);
+    }
+
+    // 4. Kiểm tra tính liên thông nội bộ của chính nhóm ghế mới
+    if (!areSeatsConnected(targetSeats)) {
+        throw new AppError('Các ghế trong nhóm phải liền kề nhau!', 400);
+    }
+
+    // 5. Kiểm tra trạng thái Redis của toàn phòng
+    const allRedisKeys = roomSeats.map(s => `hold_seat:${showtimeId}:${s.id}`);
+    const heldSeatsData = await redisAdapter.mget(allRedisKeys);
+
+    // Kiểm tra xem có ghế nào đang bị user khác giữ không
+    for (const seat of targetSeats) {
+        const idx = roomSeats.findIndex(s => s.id === seat.id);
+        const holder = heldSeatsData[idx];
+        if (holder && holder !== userId) {
+            throw new AppError(`Ghế ${seat.row_letter}${seat.seat_number} đang được người khác giữ`, 400);
+        }
+    }
+
+    // 6. Lấy các ghế đang được giữ bởi chính user này (loại trừ các ghế trong targetSeats)
+    const userHeldSeats = roomSeats.filter((s, idx) => heldSeatsData[idx] === userId && !seatIds.includes(s.id));
+
+    if (userHeldSeats.length > 0) {
+        if (userHeldSeats[0].type !== targetSeats[0].type) {
+            throw new AppError('Chỉ được chọn các ghế cùng loại trong một lần đặt!', 400);
+        }
+        if (!isNewSeatsAdjacentToExisting(userHeldSeats, targetSeats)) {
+            throw new AppError('Chỉ được chọn các ghế liền kề nhau (trên dưới, trái phải)!', 400);
+        }
+    }
+
+    // 7. Ghi nhận giữ ghế vào Redis và phát Domain Event
+    for (const seat of targetSeats) {
+        const redisKey = `hold_seat:${showtimeId}:${seat.id}`;
+        await redisAdapter.set(redisKey, userId, HOLD_DURATION_SECONDS);
+
+        eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
+            showtimeId,
+            seatId: seat.id,
+            status: 'held',
+            heldByUserId: userId
+        });
+    }
 
     return {
-        message: 'Seat held successfully, hold will expire in 5 minutes',
+        message: 'Seats held successfully, hold will expire in 5 minutes',
         showtime_id: showtimeId,
-        seat_id: seatId,
+        seat_ids: seatIds,
         expire_time: HOLD_DURATION_SECONDS
     };
 };
 
-const unholdSeat = async (showtimeId, seatId, userId) => {
-    const redisKey = `hold_seat:${showtimeId}:${seatId}`;
-    const existingHold = await redisAdapter.get(redisKey);
+const unholdSeat = async (showtimeId, seatIdsInput, userId) => {
+    const seatIds = Array.isArray(seatIdsInput) ? seatIdsInput : [seatIdsInput];
+    if (seatIds.length === 0) {
+        return { message: 'No seats to release' };
+    }
 
-    if (existingHold === userId) {
-        await redisAdapter.del(redisKey);
+    for (const seatId of seatIds) {
+        const redisKey = `hold_seat:${showtimeId}:${seatId}`;
+        const existingHold = await redisAdapter.get(redisKey);
 
-        // Phát Domain Event qua EventBus thay vì gọi trực tiếp global.io
-        eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
-            showtimeId,
-            seatId,
-            status: 'available'
-        });
+        if (existingHold === userId) {
+            await redisAdapter.del(redisKey);
+
+            eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
+                showtimeId,
+                seatId,
+                status: 'available'
+            });
+        }
     }
 
     return {
