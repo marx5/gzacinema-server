@@ -4,6 +4,7 @@
   "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\"",
+    "seed": "node src/seeders/run-seed.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js"
   },
