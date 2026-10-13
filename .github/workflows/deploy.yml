@@ -1,0 +1,69 @@
+name: Deploy Server
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  DEPLOY_PATH: "/home/ubuntu/workspace/gzacinema/gzacinema-server"
+
+jobs:
+  check_runner:
+    name: Check Runner Environment
+    runs-on: self-hosted
+    steps:
+      - name: System & Runner Info
+        run: |
+          hostname
+          hostname -I || true
+          ip route show || true
+          whoami
+          pwd
+          pm2 list || true
+          docker ps || true
+
+  deploy_job:
+    name: Deploy Server
+    needs: check_runner
+    runs-on: self-hosted
+    steps:
+      - name: Deploy & Restart PM2
+        run: |
+          # 1. Di chuyển vào thư mục deploy thực tế
+          cd $DEPLOY_PATH
+
+          # Khắc phục lỗi dubious ownership
+          git config --global --add safe.directory $DEPLOY_PATH || true
+
+          # 2. Lấy mã SHA của commit hiện tại trước khi pull
+          OLD_SHA=$(git rev-parse HEAD)
+
+          # 3. Pull code mới nhất
+          git fetch origin main
+          git reset --hard origin/main
+
+          # 4. Lấy mã SHA của commit mới sau khi pull
+          NEW_SHA=$(git rev-parse HEAD)
+
+          # 5. Kiểm tra và cài đặt/cập nhật dependencies nếu package.json/package-lock.json thay đổi
+          if [ ! -d "node_modules" ]; then
+            echo "node_modules không tồn tại. Đang chạy npm install..."
+            npm install --prefer-offline --no-audit
+          elif [ "$OLD_SHA" = "$NEW_SHA" ]; then
+            echo "Không có commit mới (SHA không đổi). Bỏ qua kiểm tra package.json."
+          elif git diff --name-only $OLD_SHA $NEW_SHA | grep -E "package.json|package-lock.json" > /dev/null; then
+            echo "Phát hiện package.json hoặc package-lock.json thay đổi. Đang chạy npm install..."
+            npm install --prefer-offline --no-audit
+          else
+            echo "package.json không đổi. Bỏ qua npm install."
+          fi
+
+          # 6. Khởi động lại dự án bằng PM2 với file ecosystem.config.js (ưu tiên reload zero-downtime)
+          pm2 reload ecosystem.config.js --update-env || pm2 restart ecosystem.config.js --update-env || pm2 start ecosystem.config.js
+          pm2 save
+
+          # 7. Health check
+          sleep 2
+          curl -f http://127.0.0.1:5000/api || exit 1
