@@ -30,6 +30,8 @@ jobs:
     runs-on: self-hosted
     steps:
       - name: Deploy & Restart PM2
+        env:
+          ENV_CONTENT: ${{ secrets.ENV_FILE }}
         run: |
           # 1. Di chuyển vào thư mục deploy thực tế
           cd $DEPLOY_PATH
@@ -37,7 +39,13 @@ jobs:
           # Khắc phục lỗi dubious ownership
           git config --global --add safe.directory $DEPLOY_PATH || true
 
-          # 2. Lấy mã SHA của commit hiện tại trước khi pull
+          # 2. Cập nhật file .env từ GitHub Secret nếu có
+          if [ -n "$ENV_CONTENT" ]; then
+            echo "$ENV_CONTENT" > .env
+            echo "--> Đã cập nhật file .env từ GitHub Secret."
+          fi
+
+          # 3. Lấy mã SHA của commit hiện tại trước khi pull
           OLD_SHA=$(git rev-parse HEAD)
 
           # 3. Pull code mới nhất
