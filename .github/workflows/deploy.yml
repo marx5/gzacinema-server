@@ -64,6 +64,6 @@ jobs:
           pm2 reload ecosystem.config.js --update-env || pm2 restart ecosystem.config.js --update-env || pm2 start ecosystem.config.js
           pm2 save
 
-          # 7. Health check
-          sleep 2
-          curl -f http://127.0.0.1:5000/api || exit 1
+          # 7. Health check với retry
+          curl --retry 10 --retry-delay 2 --retry-connrefused -f http://127.0.0.1:5000/api || exit 1
+          echo "✅ Server deployed & verified successfully!"
