@@ -45,6 +45,8 @@ const login = catchAsync(async (req, res) => {
         data: {
             id: user.id,
             email: user.email,
+            full_name: user.full_name,
+            phone_number: user.phone_number,
             role: user.role
         }
     });
