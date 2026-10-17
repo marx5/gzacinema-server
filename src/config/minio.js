@@ -1,6 +1,9 @@
 const Minio = require('minio');
 const multer = require('multer');
+const AppError = require('../core/utils/AppError');
 require('dotenv').config();
+
+const ALLOWED_IMAGE_MIMETYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
 let endPoint = process.env.MINIO_ENDPOINT || 'localhost';
 let port = parseInt(process.env.MINIO_PORT, 10) || 9000;
@@ -22,7 +25,7 @@ const minioClient = new Minio.Client({
     port,
     useSSL,
     accessKey: process.env.MINIO_ACCESS_KEY || 'gzaminio',
-    secretKey: process.env.MINIO_SECRET_KEY || 'VanVu#2003',
+    secretKey: process.env.MINIO_SECRET_KEY,
 });
 
 const bucketName = process.env.MINIO_BUCKET || 'gzacinema';
@@ -57,13 +60,21 @@ initBucket();
 const storage = multer.memoryStorage();
 const upload = multer({
     storage: storage,
-    limits: { fileSize: 10 * 1024 * 1024 }
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (ALLOWED_IMAGE_MIMETYPES.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new AppError('Chỉ chấp nhận định dạng ảnh (JPEG, PNG, WEBP, GIF)!', 400), false);
+        }
+    }
 });
 
 const uploadToMinio = async (fileBuffer, folder, filename, mimetype) => {
     const objectName = `${folder}/${filename}`;
+    const safeMimeType = ALLOWED_IMAGE_MIMETYPES.includes(mimetype) ? mimetype : 'image/jpeg';
     await minioClient.putObject(bucketName, objectName, fileBuffer, fileBuffer.length, {
-        'Content-Type': mimetype || 'image/jpeg',
+        'Content-Type': safeMimeType,
     });
 
     const publicUrlBase = process.env.MINIO_PUBLIC_URL || 'https://gza-api.vulv.id.vn/storage';
@@ -78,4 +89,4 @@ const deleteFromMinio = async (objectName) => {
     }
 };
 
-module.exports = { minioClient, upload, uploadToMinio, deleteFromMinio };
+module.exports = { minioClient, upload, uploadToMinio, deleteFromMinio, ALLOWED_IMAGE_MIMETYPES };

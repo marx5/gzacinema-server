@@ -51,12 +51,6 @@ const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 5000,
     message: { status: 'error', message: 'Too many requests from this IP, please try again later.' }
-})
-
-const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 20,
-    message: { status: 'error', message: 'Too many login attempts, please try again after 15 minutes.' }
 });
 
 const bookingLimiter = rateLimit({
@@ -85,7 +79,7 @@ app.get('/health', (req, res) => {
     res.status(200).json({ status: 'success', message: 'OK' });
 });
 
-app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/auth', limiter, authRoutes);
 app.use('/api/users', limiter, userRoutes);
 app.use('/api/cinemas', limiter, cinemaRoutes);
 app.use('/api/movies', limiter, movieRoutes);
@@ -104,32 +98,39 @@ app.all(/.*/, (req, res) => {
 });
 
 app.use((err, req, res, next) => {
-    let error = { ...err };
-    error.message = err.message;
+    let statusCode = err.statusCode || 500;
+    let status = err.status || (String(statusCode).startsWith('4') ? 'fail' : 'error');
+    let message = err.message || 'Internal Server Error';
 
     if (err.name === 'SequelizeUniqueConstraintError') {
-        error.statusCode = 400;
-        error.message = 'Duplicate value found for a unique field';
+        statusCode = 400;
+        status = 'fail';
+        message = 'Duplicate value found for a unique field';
     }
 
     if (err.name === 'SequelizeValidationError') {
-        error.statusCode = 400;
-        error.message = err.errors.map(e => e.message).join(', ');
+        statusCode = 400;
+        status = 'fail';
+        message = err.errors.map(e => e.message).join(', ');
     }
 
     if (err.name === 'JsonWebTokenError') {
-        error.statusCode = 401;
-        error.message = 'Invalid token. Please log in again.';
+        statusCode = 401;
+        status = 'fail';
+        message = 'Invalid token. Please log in again.';
     }
 
-    const statusCode = error.statusCode || 500;
-    const status = error.status || 'error';
+    if (err.name === 'TokenExpiredError') {
+        statusCode = 401;
+        status = 'fail';
+        message = 'Your token has expired. Please log in again.';
+    }
 
     res.status(statusCode).json({
         status,
-        message: error.message,
-        ...process.env.NODE_ENV === 'development' && { stack: error.stack }
-    })
+        message,
+        ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    });
 });
 
 module.exports = app;

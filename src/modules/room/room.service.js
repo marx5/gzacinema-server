@@ -1,5 +1,4 @@
-const { or } = require('sequelize');
-const { Cinema, Room, Seat, sequelize } = require('../../models');
+const { Cinema, Room, Seat, Showtime, sequelize } = require('../../models');
 const AppError = require('../../core/utils/AppError');
 
 const createRoom = async (cinemaId, roomData) => {
@@ -9,6 +8,10 @@ const createRoom = async (cinemaId, roomData) => {
     }
 
     const { name, rowCount = 5, colCount = 10 } = roomData;
+    if (rowCount < 1 || rowCount > 26 || colCount < 1 || colCount > 30) {
+        throw new AppError('Invalid room dimensions (rowCount: 1-26, colCount: 1-30)', 400);
+    }
+
     const t = await sequelize.transaction();
     try {
         const newRoom = await Room.create({
@@ -55,14 +58,24 @@ const createRoom = async (cinemaId, roomData) => {
 const getRoomsByCinema = async (cinemaId) => {
     return await Room.findAll({
         where: { cinema_id: cinemaId },
-        order: [['createdAt', 'DESC']]
-    })
+        include: [{
+            model: Seat,
+            as: 'seats',
+            attributes: ['id', 'row_letter', 'seat_number', 'type', 'status']
+        }],
+        order: [
+            ['createdAt', 'DESC'],
+            [{ model: Seat, as: 'seats' }, 'row_letter', 'ASC'],
+            [{ model: Seat, as: 'seats' }, 'seat_number', 'ASC']
+        ]
+    });
 }
 
-const updateRoom = async (roomId, roomData) => {
-    const room = await Room.findByPk(roomId);
+const updateRoom = async (roomId, roomData, cinemaId) => {
+    const whereClause = cinemaId ? { id: roomId, cinema_id: cinemaId } : { id: roomId };
+    const room = await Room.findOne({ where: whereClause });
     if (!room) {
-        throw new AppError('Room not found');
+        throw new AppError('Room not found', 404);
     }
 
     await room.update({
@@ -71,13 +84,28 @@ const updateRoom = async (roomId, roomData) => {
     return room;
 }
 
-const deleteRoom = async (roomId) => {
-    const room = await Room.findByPk(roomId);
+const deleteRoom = async (roomId, cinemaId) => {
+    const whereClause = cinemaId ? { id: roomId, cinema_id: cinemaId } : { id: roomId };
+    const room = await Room.findOne({ where: whereClause });
     if (!room) {
         throw new AppError('Room not found', 404);
     }
-    await Seat.destroy({ where: { room_id: roomId } });
-    await room.destroy();
+
+    const showtimeCount = await Showtime.count({ where: { room_id: roomId } });
+    if (showtimeCount > 0) {
+        throw new AppError('Cannot delete room with existing showtimes', 400);
+    }
+
+    const t = await sequelize.transaction();
+    try {
+        await Seat.destroy({ where: { room_id: roomId }, transaction: t });
+        await room.destroy({ transaction: t });
+        await t.commit();
+    } catch (error) {
+        await t.rollback();
+        throw error;
+    }
+
     return {
         message: 'Room and associated seats deleted successfully'
     };

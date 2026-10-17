@@ -2,6 +2,7 @@ const redis = require('../../config/redis');
 const { createRedisSubscriber } = require('../../config/redis');
 const eventBus = require('../../core/events/eventBus');
 const DomainEvents = require('../../core/events/domainEvents');
+const seatRepository = require('../../modules/booking/infrastructure/seat.repository');
 
 let subscriber = null;
 
@@ -32,7 +33,7 @@ const initRedisExpiredListener = async () => {
             console.log(`[Redis] Subscribed to expired channel pattern (${EXPIRED_CHANNEL_PATTERN}). Channels count: ${count}`);
         });
 
-        subscriber.on('pmessage', (pattern, channel, expiredKey) => {
+        subscriber.on('pmessage', async (pattern, channel, expiredKey) => {
             if (!expiredKey || !expiredKey.startsWith('hold_seat:')) {
                 return;
             }
@@ -41,14 +42,22 @@ const initRedisExpiredListener = async () => {
             if (parts.length === 3) {
                 const [, showtimeId, seatId] = parts;
                 if (showtimeId && seatId) {
-                    console.log(`[Redis Expired] Seat hold expired for showtime ${showtimeId}, seat ${seatId}. Emitting available event.`);
-                    
-                    // Phát Domain Event để Socket.IO adapter thông báo realtime cho các client
-                    eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
-                        showtimeId,
-                        seatId,
-                        status: 'available'
-                    });
+                    try {
+                        const isSold = await seatRepository.isSeatSold(showtimeId, seatId);
+                        if (isSold) {
+                            return;
+                        }
+                        console.log(`[Redis Expired] Seat hold expired for showtime ${showtimeId}, seat ${seatId}. Emitting available event.`);
+                        
+                        // Phát Domain Event để Socket.IO adapter thông báo realtime cho các client
+                        eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
+                            showtimeId,
+                            seatId,
+                            status: 'available'
+                        });
+                    } catch (err) {
+                        console.error('[Redis Expired] Error checking sold seat status:', err);
+                    }
                 }
             }
         });

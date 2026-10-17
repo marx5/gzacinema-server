@@ -1,18 +1,19 @@
-const { Op, where, or } = require('sequelize');
-const { Showtime, Room, Movie, Cinema, Booking, Ticket } = require('../../models');
+const { Op } = require('sequelize');
+const { Showtime, Room, Movie, Cinema, Booking } = require('../../models');
 const AppError = require('../../core/utils/AppError');
+const { parsePagination, formatPaginatedResult } = require('../../core/utils/pagination');
 
 const createShowtime = async (showtimeData) => {
     const { movie_id, room_id, start_time, base_price } = showtimeData;
 
     const movie = await Movie.findByPk(movie_id);
     if (!movie) {
-        throw new AppError('Movie not found');
+        throw new AppError('Movie not found', 404);
     }
 
     const room = await Room.findByPk(room_id);
     if (!room) {
-        throw new AppError('Room not found');
+        throw new AppError('Room not found', 404);
     }
 
     const totalMinutes = movie.duration_minutes + 15;
@@ -33,7 +34,7 @@ const createShowtime = async (showtimeData) => {
     })
 
     if (overlappingShowtime) {
-        throw new AppError('Showtime overlaps with an existing showtime in the same room');
+        throw new AppError('Showtime overlaps with an existing showtime in the same room', 400);
     }
 
     const newShowtime = await Showtime.create({
@@ -57,7 +58,8 @@ const getShowtimesByMovie = async (movieId) => {
                 model: Room,
                 as: 'room',
                 attributes: ['id', 'name'],
-                include: [{ model: Cinema, as: 'cinema', attributes: ['id', 'name', 'address'] }]
+                required: true,
+                include: [{ model: Cinema, as: 'cinema', attributes: ['id', 'name', 'address'], required: true }]
             }
         ],
         order: [['start_time', 'ASC']]
@@ -84,10 +86,8 @@ const getShowtimesByMovie = async (movieId) => {
     return Object.values(groupedShowtimes);
 }
 
-const getAllShowtimesAdmin = async (query) => {
-    const page = parseInt(query.page, 10) || 1;
-    const limit = parseInt(query.limit, 10) || 10;
-    const offset = (page - 1) * limit;
+const getAllShowtimesAdmin = async (query = {}) => {
+    const { page, limit, offset } = parsePagination(query);
 
     let condition = {};
     if (query.movie_id) {
@@ -114,12 +114,13 @@ const getAllShowtimesAdmin = async (query) => {
         ]
     })
 
-    return {
-        total_items: count,
-        total_pages: Math.ceil(count / limit),
-        current_page: page,
-        showtimes: rows
-    }
+    return formatPaginatedResult({
+        count,
+        rows,
+        page,
+        limit,
+        dataKey: 'showtimes'
+    });
 }
 
 const deleteShowtime = async (showtimeId) => {

@@ -1,4 +1,5 @@
-const { sequelize, Booking, Ticket, User, Showtime, Movie, Room } = require('../../../models');
+const { sequelize, Booking, Ticket, User, Showtime, Movie, Room, Seat } = require('../../../models');
+const { formatPaginatedResult } = require('../../../core/utils/pagination');
 
 /**
  * Booking Repository (Sequelize Implementation)
@@ -7,6 +8,29 @@ class BookingRepository {
     async createBookingWithTickets({ userId, showtimeId, totalAmount, ticketsData }) {
         const t = await sequelize.transaction();
         try {
+            const existingPendingBookings = await Booking.findAll({
+                where: {
+                    user_id: userId,
+                    showtime_id: showtimeId,
+                    status: 'pending'
+                },
+                attributes: ['id'],
+                lock: t.LOCK.UPDATE,
+                transaction: t
+            });
+
+            if (existingPendingBookings.length > 0) {
+                const pendingIds = existingPendingBookings.map(b => b.id);
+                await Booking.update(
+                    { status: 'cancelled' },
+                    { where: { id: pendingIds }, transaction: t }
+                );
+                await Ticket.update(
+                    { status: 'refunded' },
+                    { where: { booking_id: pendingIds }, transaction: t }
+                );
+            }
+
             const newBooking = await Booking.create({
                 user_id: userId,
                 showtime_id: showtimeId,
@@ -60,13 +84,20 @@ class BookingRepository {
                 return { success: false, reason: 'already_processed', status: booking.status, booking };
             }
 
-            // DB Invariant Protection: Kiểm tra xem có vé nào của các ghế này trong cùng showtime đã được thanh toán (paid) bởi booking khác không
+            // DB Invariant Protection: Khóa các dòng Seat theo thứ tự id tăng dần trước khi kiểm tra double-booking
             const seatIds = (booking.tickets || []).map(t => t.seat_id);
             if (seatIds.length > 0) {
+                await Seat.findAll({
+                    where: { id: seatIds },
+                    order: [['id', 'ASC']],
+                    lock: t.LOCK.UPDATE,
+                    transaction: t
+                });
+
                 const existingPaidTicket = await Ticket.findOne({
                     where: {
                         seat_id: seatIds,
-                        status: 'valid'
+                        status: ['valid', 'used']
                     },
                     include: [{
                         model: Booking,
@@ -80,7 +111,13 @@ class BookingRepository {
                 });
 
                 if (existingPaidTicket) {
-                    await t.rollback();
+                    booking.status = 'cancelled';
+                    await booking.save({ transaction: t });
+                    await Ticket.update(
+                        { status: 'refunded' },
+                        { where: { booking_id: booking.id }, transaction: t }
+                    );
+                    await t.commit();
                     return { success: false, reason: 'seat_already_paid', booking };
                 }
             }
@@ -171,12 +208,13 @@ class BookingRepository {
             })
         ]);
 
-        return {
-            total_items: count,
-            total_pages: Math.ceil(count / limit),
-            current_page: page,
-            bookings: rows
-        };
+        return formatPaginatedResult({
+            count,
+            rows,
+            page,
+            limit,
+            dataKey: 'bookings'
+        });
     }
 }
 

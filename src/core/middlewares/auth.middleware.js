@@ -13,6 +13,12 @@ const verifyToken = (req, res, next) => {
 
     try {
         const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
+        if (decoded.type && decoded.type !== 'access') {
+            return res.status(401).json({
+                status: 'error',
+                message: 'Invalid token type'
+            });
+        }
         req.user = decoded;
         next();
     } catch (error) {

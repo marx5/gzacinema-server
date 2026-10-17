@@ -1,4 +1,4 @@
-const { Showtime, Room, Seat, Ticket, Booking } = require('../../../models');
+const { Showtime, Room, Cinema, Movie, Seat, Ticket, Booking } = require('../../../models');
 
 /**
  * Seat & Showtime Repository (Sequelize Implementation)
@@ -6,7 +6,18 @@ const { Showtime, Room, Seat, Ticket, Booking } = require('../../../models');
 class SeatRepository {
     async findShowtimeWithRoom(showtimeId) {
         return await Showtime.findByPk(showtimeId, {
-            include: [{ model: Room, as: 'room' }]
+            include: [
+                {
+                    model: Room,
+                    as: 'room',
+                    include: [{ model: Cinema, as: 'cinema', attributes: ['id', 'name', 'address'] }]
+                },
+                {
+                    model: Movie,
+                    as: 'movie',
+                    attributes: ['id', 'title', 'poster_url', 'duration_minutes', 'genre']
+                }
+            ]
         });
     }
 

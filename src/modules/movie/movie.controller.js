@@ -2,20 +2,28 @@ const movieService = require('./movie.service');
 const catchAsync = require('../../core/utils/catchAsync');
 const { uploadToMinio } = require('../../config/minio');
 
-const generateFilename = (title) => {
+const MIME_TO_EXT = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif'
+};
+
+const generateFilename = (title, mimetype) => {
     const safeTitle = (title || 'movie')
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');
-    return `${safeTitle}-${Date.now()}.webp`;
+    const ext = MIME_TO_EXT[mimetype] || 'webp';
+    return `${safeTitle}-${Date.now()}.${ext}`;
 };
 
 const addMovie = catchAsync(async (req, res) => {
     const movieData = req.body;
     if (req.file) {
-        const filename = generateFilename(req.body.title);
+        const filename = generateFilename(req.body.title, req.file.mimetype);
         movieData.thumbnail = await uploadToMinio(req.file.buffer, 'movies', filename, req.file.mimetype);
     }
 
@@ -53,9 +61,10 @@ const getMovieDetails = catchAsync(async (req, res) => {
 })
 
 const updateMovie = catchAsync(async (req, res) => {
+    const existingMovie = await movieService.getMovieById(req.params.id);
     const movieData = req.body;
     if (req.file) {
-        const filename = generateFilename(req.body.title);
+        const filename = generateFilename(req.body.title || existingMovie.title, req.file.mimetype);
         movieData.thumbnail = await uploadToMinio(req.file.buffer, 'movies', filename, req.file.mimetype);
     }
     const updatedMovie = await movieService.updateMovie(req.params.id, movieData);

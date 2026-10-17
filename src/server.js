@@ -19,13 +19,13 @@ const io = new Server(server, {
 });
 
 const initSeatSocketHandler = require('./infrastructure/sockets/seatSocket.handler');
-const { initRedisExpiredListener } = require('./infrastructure/cache/redisExpired.listener');
+const { initRedisExpiredListener, stopRedisExpiredListener } = require('./infrastructure/cache/redisExpired.listener');
 
 initSeatSocketHandler(io);
 
 const startServer = async () => {
     await connectDB();
-    await sequelize.sync({ alter: true });
+    await sequelize.sync(process.env.DB_ALTER_SYNC === 'true' ? { alter: true } : undefined);
     console.log('Database connected and models synchronized');
 
     cleanupPendingBookings();
@@ -34,6 +34,17 @@ const startServer = async () => {
     server.listen(PORT, () => {
         console.log(`Server is running on http://localhost:${PORT}`);
     });
-}
+};
+
+const gracefulShutdown = async (signal) => {
+    console.log(`[Server] Received ${signal}. Shutting down gracefully...`);
+    await stopRedisExpiredListener();
+    server.close(() => {
+        process.exit(0);
+    });
+};
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 startServer();

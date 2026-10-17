@@ -1,12 +1,11 @@
 const cron = require('node-cron');
 const { Booking, Ticket } = require('../../models');
 const bookingRepository = require('../../modules/booking/infrastructure/booking.repository');
-const redisAdapter = require('../../infrastructure/cache/redis.adapter');
-const eventBus = require('../events/eventBus');
-const DomainEvents = require('../events/domainEvents');
+const { releaseCancelledBookingSeats } = require('../../modules/booking/booking.service');
 const { Op } = require('sequelize');
 
 const CLEANUP_EXPIRATION_MINUTES = 15;
+let isCleaning = false;
 
 /**
  * Cron job chạy định kỳ mỗi phút:
@@ -18,10 +17,13 @@ const CLEANUP_EXPIRATION_MINUTES = 15;
 const cleanupPendingBookings = () => {
     // Chạy mỗi phút 1 lần vào đúng giây thứ 00 (0 * * * * *)
     cron.schedule('0 * * * * *', async () => {
+        if (isCleaning) return;
+        isCleaning = true;
+
         const expirationThreshold = new Date(Date.now() - CLEANUP_EXPIRATION_MINUTES * 60 * 1000);
 
         try {
-            // 1. Tìm danh sách các booking pending quá hạn
+            // 1. Tìm danh sách các booking pending quá hạn (giới hạn mỗi mẻ 200 đơn)
             const expiredCandidates = await Booking.findAll({
                 where: {
                     status: 'pending',
@@ -29,6 +31,7 @@ const cleanupPendingBookings = () => {
                         [Op.lt]: expirationThreshold
                     }
                 },
+                limit: 200,
                 include: [{
                     model: Ticket,
                     as: 'tickets',
@@ -51,18 +54,11 @@ const cleanupPendingBookings = () => {
                     cleanedCount++;
                     const showtimeId = candidate.showtime_id;
                     const seatIds = (candidate.tickets || []).map(t => t.seat_id);
-                    const redisKeys = seatIds.map(seatId => `hold_seat:${showtimeId}:${seatId}`);
 
-                    // Xóa key Redis an toàn: chỉ xóa nếu key đó vẫn thuộc về đúng user này
-                    await redisAdapter.releaseMultipleSeats(redisKeys, candidate.user_id);
-
-                    // Phát sự kiện nhả ghế realtime
-                    seatIds.forEach(seatId => {
-                        eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
-                            showtimeId,
-                            seatId,
-                            status: 'available'
-                        });
+                    await releaseCancelledBookingSeats({
+                        showtimeId,
+                        seatIds,
+                        userId: candidate.user_id
                     });
                 }
             }
@@ -72,6 +68,8 @@ const cleanupPendingBookings = () => {
             }
         } catch (error) {
             console.error('[CRON] Lỗi chạy tác vụ dọn dẹp đơn hàng quá hạn:', error);
+        } finally {
+            isCleaning = false;
         }
     });
 };

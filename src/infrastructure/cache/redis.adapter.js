@@ -41,18 +41,6 @@ class RedisCacheAdapter {
     }
 
     /**
-     * Đặt giá trị cho key nếu chưa tồn tại (SET NX) với thời gian hết hạn (seconds)
-     * @param {string} key 
-     * @param {string|number} value 
-     * @param {number} ttlSeconds 
-     * @returns {Promise<boolean>} true nếu set thành công, false nếu key đã tồn tại
-     */
-    async setNx(key, value, ttlSeconds) {
-        const result = await redisClient.set(key, value, 'EX', ttlSeconds, 'NX');
-        return result === 'OK';
-    }
-
-    /**
      * Gia hạn TTL cho key (seconds)
      * @param {string} key 
      * @param {number} ttlSeconds 
@@ -113,6 +101,33 @@ class RedisCacheAdapter {
     }
 
     /**
+     * Giữ mới hoặc gia hạn đồng thời nhiều ghế nguyên tử (All-or-Nothing qua Lua script)
+     * Nếu bất kỳ key nào đang được giữ bởi người khác (value ~= nil và value ~= owner), trả về false.
+     * Ngược lại, SET tất cả keys cho owner với TTL và trả về true.
+     * @param {string[]} keys
+     * @param {string} owner
+     * @param {number} ttlSeconds
+     * @returns {Promise<boolean>}
+     */
+    async acquireOrExtendMultipleSeats(keys, owner, ttlSeconds) {
+        if (!keys || keys.length === 0) return false;
+        const luaScript = `
+            for i = 1, #KEYS do
+                local current = redis.call("get", KEYS[i])
+                if current and current ~= ARGV[1] then
+                    return 0
+                end
+            end
+            for i = 1, #KEYS do
+                redis.call("set", KEYS[i], ARGV[1], "EX", ARGV[2])
+            end
+            return 1
+        `;
+        const result = await redisClient.eval(luaScript, keys.length, ...keys, String(owner), String(ttlSeconds));
+        return result === 1;
+    }
+
+    /**
      * Nhả ghế an toàn chỉ khi key thuộc về đúng owner (Compare-and-Delete qua Lua script)
      * @param {string} key 
      * @param {string} owner 
@@ -126,7 +141,7 @@ class RedisCacheAdapter {
                 return 0
             end
         `;
-        const result = await redisClient.eval(luaScript, 1, key, owner);
+        const result = await redisClient.eval(luaScript, 1, key, String(owner));
         return result === 1;
     }
 
@@ -169,6 +184,28 @@ class RedisCacheAdapter {
         `;
         const result = await redisClient.eval(luaScript, keys.length, ...keys, String(owner));
         return Number(result);
+    }
+
+    /**
+     * Nhả nhiều ghế an toàn thuộc về owner và trả về danh sách các key đã thực sự được xóa
+     * @param {string[]} keys 
+     * @param {string} owner 
+     * @returns {Promise<string[]>} danh sách các key thực sự được xóa
+     */
+    async releaseMultipleSeatsReturningKeys(keys, owner) {
+        if (!keys || keys.length === 0) return [];
+        const luaScript = `
+            local released = {}
+            for i = 1, #KEYS do
+                if redis.call("get", KEYS[i]) == ARGV[1] then
+                    redis.call("del", KEYS[i])
+                    table.insert(released, KEYS[i])
+                end
+            end
+            return released
+        `;
+        const result = await redisClient.eval(luaScript, keys.length, ...keys, String(owner));
+        return Array.isArray(result) ? result : [];
     }
 
     /**

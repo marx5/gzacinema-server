@@ -1,8 +1,8 @@
 const { Op } = require('sequelize');
-const { Booking, Ticket, User, sequelize, Showtime, Movie } = require('../../models');
+const { Booking, Ticket, User, sequelize, Showtime, Movie, Room } = require('../../models');
 const redis = require('../../config/redis');
 
-const getDashboardStats = async (query) => {
+const getDashboardStats = async (query = {}) => {
     const { startDate, endDate, cinemaId } = query;
 
     const cacheKey = `dashboard:stats:${startDate || 'all'}:${endDate || 'all'}:${cinemaId || 'all'}`;
@@ -30,45 +30,80 @@ const getDashboardStats = async (query) => {
         userCondition.createdAt = dateFilter;
     }
 
-    const cinemaCondition = {};
-    if (cinemaId) {
-        cinemaCondition.id = cinemaId;
-    }
-
-    const totalRevenue = await Booking.sum('total_amount', { where: bookingCondition }) || 0;
-    const totalTicketsSold = await Ticket.count({
-        include: [{
-            model: Booking,
-            as: 'booking',
-            where: bookingCondition,
-            required: true
-        }]
-    })
-
-    const totalUsers = await User.count({ where: userCondition });
-
-    const revenueByMovie = await Booking.findAll({
-        where: bookingCondition,
-        attributes: [
-            [sequelize.col('showtime.movie.id'), 'movie_id'],
-            [sequelize.col('showtime.movie.title'), 'title'],
-            [sequelize.fn('SUM', sequelize.col('Booking.total_amount')), 'total_revenue'],
-            [sequelize.fn('COUNT', sequelize.col('Booking.id')), 'booking_count']
-        ],
-        include: [{
+    const cinemaShowtimeInclude = cinemaId
+        ? [{
             model: Showtime,
             as: 'showtime',
             attributes: [],
+            required: true,
             include: [{
-                model: Movie,
-                as: 'movie',
-                attributes: []
+                model: Room,
+                as: 'room',
+                attributes: [],
+                where: { cinema_id: cinemaId },
+                required: true
             }]
-        }],
-        group: ['showtime.movie.id', 'showtime.movie.title'],
-        order: [[sequelize.literal('total_revenue'), 'DESC']],
-        raw: true
-    })
+        }]
+        : [];
+
+    const [revenueRow, totalTicketsSold, totalUsers, revenueByMovie] = await Promise.all([
+        Booking.findOne({
+            where: bookingCondition,
+            attributes: [
+                [sequelize.fn('COALESCE', sequelize.fn('SUM', sequelize.col('Booking.total_amount')), 0), 'total_revenue']
+            ],
+            include: cinemaShowtimeInclude,
+            raw: true
+        }),
+        Ticket.count({
+            where: { status: ['valid', 'used'] },
+            include: [{
+                model: Booking,
+                as: 'booking',
+                attributes: [],
+                where: bookingCondition,
+                required: true,
+                include: cinemaShowtimeInclude
+            }]
+        }),
+        User.count({ where: userCondition }),
+        Booking.findAll({
+            where: bookingCondition,
+            attributes: [
+                [sequelize.col('showtime.movie.id'), 'movie_id'],
+                [sequelize.col('showtime.movie.title'), 'title'],
+                [sequelize.fn('SUM', sequelize.col('Booking.total_amount')), 'total_revenue'],
+                [sequelize.fn('COUNT', sequelize.col('Booking.id')), 'booking_count']
+            ],
+            include: [{
+                model: Showtime,
+                as: 'showtime',
+                attributes: [],
+                required: true,
+                include: [
+                    {
+                        model: Movie,
+                        as: 'movie',
+                        attributes: [],
+                        required: true
+                    },
+                    ...(cinemaId ? [{
+                        model: Room,
+                        as: 'room',
+                        attributes: [],
+                        where: { cinema_id: cinemaId },
+                        required: true
+                    }] : [])
+                ]
+            }],
+            group: ['showtime.movie.id', 'showtime.movie.title'],
+            order: [[sequelize.literal('total_revenue'), 'DESC']],
+            raw: true
+        })
+    ]);
+
+    const totalRevenue = Number(revenueRow?.total_revenue) || 0;
+
     const stats = {
         overview: {
             total_revenue: totalRevenue,
@@ -86,6 +121,6 @@ const getDashboardStats = async (query) => {
     }
 
     return stats;
-}
+};
 
-module.exports = { getDashboardStats }
+module.exports = { getDashboardStats };

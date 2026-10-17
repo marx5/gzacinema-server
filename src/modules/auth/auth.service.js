@@ -33,13 +33,15 @@ const loginUser = async (email, password) => {
 
     const accessToken = jwt.sign({
         id: user.id,
-        role: user.role
+        role: user.role,
+        type: 'access'
     }, process.env.JWT_ACCESS_SECRET, {
         expiresIn: process.env.JWT_ACCESS_EXPIRES_IN
     });
 
     const refreshToken = jwt.sign({
-        id: user.id
+        id: user.id,
+        type: 'refresh'
     }, process.env.JWT_REFRESH_SECRET, {
         expiresIn: process.env.JWT_REFRESH_EXPIRES_IN
     });
@@ -54,6 +56,10 @@ const refreshAccessToken = async (refreshToken) => {
 
     try {
         const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+        if (decoded.type && decoded.type !== 'refresh') {
+            throw new AppError('Invalid token type', 401);
+        }
+
         const user = await userRepository.findById(decoded.id);
         if (!user) {
             throw new AppError('User not found', 404);
@@ -61,7 +67,8 @@ const refreshAccessToken = async (refreshToken) => {
 
         const newAccessToken = jwt.sign({
             id: user.id,
-            role: user.role
+            role: user.role,
+            type: 'access'
         }, process.env.JWT_ACCESS_SECRET, {
             expiresIn: process.env.JWT_ACCESS_EXPIRES_IN
         });

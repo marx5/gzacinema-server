@@ -1,4 +1,4 @@
-const { Movie, Showtime, Booking, Ticket, sequelize } = require('../../../models');
+const { Movie, Showtime, sequelize } = require('../../../models');
 const { Op } = require('sequelize');
 
 /**
@@ -26,6 +26,15 @@ class MovieRepository {
         if (!movie) return null;
         await movie.destroy();
         return movie;
+    }
+
+    async countUpcomingShowtimes(movieId) {
+        return await Showtime.count({
+            where: {
+                movie_id: movieId,
+                start_time: { [Op.gt]: new Date() }
+            }
+        });
     }
 
     async findAndCountAll({ condition, limit, offset, order }) {

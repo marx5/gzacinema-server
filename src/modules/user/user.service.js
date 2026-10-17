@@ -1,23 +1,31 @@
 const bcrypt = require('bcrypt');
 const userRepository = require('./infrastructure/user.repository');
 const AppError = require('../../core/utils/AppError');
+const { parsePagination, formatPaginatedResult } = require('../../core/utils/pagination');
+
+const getProfile = async (userId) => {
+    const user = await userRepository.findByIdWithoutPassword(userId);
+    if (!user) {
+        throw new AppError('User not found', 404);
+    }
+    return user;
+};
 
 const getUserHistory = async (userId, query = {}) => {
-    const page = parseInt(query.page, 10) || 1;
-    const limit = parseInt(query.limit, 10) || 10;
-    const offset = (page - 1) * limit;
+    const { page, limit, offset } = parsePagination(query);
 
     const { count, rows } = await userRepository.findUserHistory(userId, {
         limit,
         offset
     });
 
-    return {
-        total_items: count,
-        total_pages: Math.ceil(count / limit),
-        current_page: page,
-        history: rows
-    };
+    return formatPaginatedResult({
+        count,
+        rows,
+        page,
+        limit,
+        dataKey: 'history'
+    });
 };
 
 const updateProfile = async (userId, data) => {
@@ -25,7 +33,7 @@ const updateProfile = async (userId, data) => {
     if (!user) throw new AppError('User not found', 404);
 
     if (data.full_name) user.full_name = data.full_name;
-    if (data.phone_number) user.phone_number = data.phone_number;
+    if (data.phone_number !== undefined) user.phone_number = data.phone_number;
 
     if (data.old_password && data.new_password) {
         const isPasswordValid = await bcrypt.compare(data.old_password, user.password);
@@ -43,6 +51,7 @@ const updateProfile = async (userId, data) => {
 };
 
 module.exports = {
+    getProfile,
     getUserHistory,
     updateProfile
 };

@@ -5,6 +5,7 @@ const redisAdapter = require('../../infrastructure/cache/redis.adapter');
 const eventBus = require('../../core/events/eventBus');
 const DomainEvents = require('../../core/events/domainEvents');
 const AppError = require('../../core/utils/AppError');
+const { parsePagination } = require('../../core/utils/pagination');
 
 const HOLD_DURATION_SECONDS = 300; // 5 phút
 
@@ -15,8 +16,10 @@ const getShowtimeSeats = async (showtimeId, userId) => {
         throw new AppError('Showtime not found', 404);
     }
 
-    const seats = await seatRepository.findSeatsByRoomId(showtime.room_id);
-    const soldSeatIds = await seatRepository.findSoldSeatIds(showtimeId);
+    const [seats, soldSeatIds] = await Promise.all([
+        seatRepository.findSeatsByRoomId(showtime.room_id),
+        seatRepository.findSoldSeatIds(showtimeId)
+    ]);
 
     const redisKeys = seats.map(seat => `hold_seat:${showtimeId}:${seat.id}`);
     const heldSeatsData = await redisAdapter.mget(redisKeys);
@@ -26,6 +29,8 @@ const getShowtimeSeats = async (showtimeId, userId) => {
 
         if (soldSeatIds.includes(seat.id)) {
             seatStatus = 'booked';
+        } else if (seat.status && seat.status !== 'available') {
+            seatStatus = seat.status;
         } else if (heldSeatsData[index] !== null) {
             if (heldSeatsData[index] === userId) {
                 seatStatus = 'held_by_me';
@@ -46,8 +51,13 @@ const getShowtimeSeats = async (showtimeId, userId) => {
     return {
         showtime_info: {
             movie_id: showtime.movie_id,
+            movie_title: showtime.movie?.title || '',
+            poster_url: showtime.movie?.poster_url || '',
+            duration_minutes: showtime.movie?.duration_minutes || null,
             start_time: showtime.start_time,
-            room_name: showtime.room.name,
+            room_name: showtime.room?.name || '',
+            cinema_name: showtime.room?.cinema?.name || '',
+            cinema_address: showtime.room?.cinema?.address || '',
             base_price: showtime.base_price
         },
         seats: seatMap
@@ -55,19 +65,26 @@ const getShowtimeSeats = async (showtimeId, userId) => {
 };
 
 const holdSeat = async (showtimeId, seatIdsInput, userId) => {
-    const seatIds = Array.isArray(seatIdsInput) ? seatIdsInput : [seatIdsInput];
+    const seatIds = [...new Set(Array.isArray(seatIdsInput) ? seatIdsInput : [seatIdsInput])];
     if (seatIds.length === 0) throw new AppError('No seats provided', 400);
 
     const showtime = await seatRepository.findShowtimeWithRoom(showtimeId);
     if (!showtime) throw new AppError('Showtime not found', 404);
 
-    const roomSeats = await seatRepository.findSeatsByRoomId(showtime.room_id);
-    const soldSeatIds = await seatRepository.findSoldSeatIds(showtimeId);
+    const [roomSeats, soldSeatIds] = await Promise.all([
+        seatRepository.findSeatsByRoomId(showtime.room_id),
+        seatRepository.findSoldSeatIds(showtimeId)
+    ]);
 
     // 1. Tìm các đối tượng ghế tương ứng trong phòng
     const targetSeats = roomSeats.filter(s => seatIds.includes(s.id));
     if (targetSeats.length !== seatIds.length) {
         throw new AppError('Một số ghế không tồn tại trong phòng chiếu', 404);
+    }
+
+    // 1b. Kiểm tra trạng thái vật lý của ghế (broken / maintenance)
+    if (targetSeats.some(s => s.status && s.status !== 'available')) {
+        throw new AppError('Một số ghế đang bảo trì hoặc không khả dụng!', 400);
     }
 
     // 2. Kiểm tra xem có ghế nào đã bán chưa
@@ -111,46 +128,29 @@ const holdSeat = async (showtimeId, seatIdsInput, userId) => {
         }
     }
 
-    // 7. Ghi nhận giữ ghế vào Redis một cách nguyên tử (Atomic Operation) kèm Rollback an toàn
-    const successfullyHeldSeats = [];
-    try {
-        for (const seat of targetSeats) {
-            const redisKey = `hold_seat:${showtimeId}:${seat.id}`;
-            
-            // Cố gắng gia hạn nếu chính user này đang giữ ghế
-            const isExtended = await redisAdapter.extendSeat(redisKey, userId, HOLD_DURATION_SECONDS);
-            
-            if (isExtended) {
-                successfullyHeldSeats.push(seat);
-            } else {
-                // Thử giữ ghế mới nguyên tử bằng SET NX EX
-                const isAcquired = await redisAdapter.acquireSeat(redisKey, userId, HOLD_DURATION_SECONDS);
-                if (!isAcquired) {
-                    throw new AppError(
-                        `Ghế ${seat.row_letter}${seat.seat_number} vừa được người khác giữ trước một khoảnh khắc!`,
-                        400
-                    );
-                }
-                successfullyHeldSeats.push(seat);
-            }
-        }
+    // 7. Ghi nhận giữ ghế vào Redis một cách nguyên tử đa khóa (Atomic Lua Script)
+    const targetRedisKeys = targetSeats.map(seat => `hold_seat:${showtimeId}:${seat.id}`);
+    const isAcquired = await redisAdapter.acquireOrExtendMultipleSeats(
+        targetRedisKeys,
+        userId,
+        HOLD_DURATION_SECONDS
+    );
 
-        // Phát Domain Event cho các ghế đã giữ thành công
-        for (const seat of successfullyHeldSeats) {
-            eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
-                showtimeId,
-                seatId: seat.id,
-                status: 'held',
-                heldByUserId: userId
-            });
-        }
-    } catch (error) {
-        // Rollback an toàn: Sử dụng atomic Lua compare-and-delete (chỉ giải phóng ghế nếu key vẫn thuộc đúng userId này)
-        for (const seat of successfullyHeldSeats) {
-            const redisKey = `hold_seat:${showtimeId}:${seat.id}`;
-            await redisAdapter.releaseSeat(redisKey, userId);
-        }
-        throw error;
+    if (!isAcquired) {
+        throw new AppError(
+            'Một hoặc nhiều ghế vừa được người khác giữ trước một khoảnh khắc!',
+            400
+        );
+    }
+
+    // Phát Domain Event cho các ghế đã giữ thành công
+    for (const seat of targetSeats) {
+        eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
+            showtimeId,
+            seatId: seat.id,
+            status: 'held',
+            heldByUserId: userId
+        });
     }
 
     return {
@@ -163,9 +163,24 @@ const holdSeat = async (showtimeId, seatIdsInput, userId) => {
 
 
 const unholdSeat = async (showtimeId, seatIdsInput, userId) => {
-    const seatIds = Array.isArray(seatIdsInput) ? seatIdsInput : [seatIdsInput];
+    const seatIds = [...new Set(Array.isArray(seatIdsInput) ? seatIdsInput : [seatIdsInput])];
     if (seatIds.length === 0) {
         return { message: 'No seats to release' };
+    }
+
+    const showtime = await seatRepository.findShowtimeWithRoom(showtimeId);
+    if (showtime) {
+        const roomSeats = await seatRepository.findSeatsByRoomId(showtime.room_id);
+        const allRedisKeys = roomSeats.map(s => `hold_seat:${showtimeId}:${s.id}`);
+        const heldSeatsData = await redisAdapter.mget(allRedisKeys);
+
+        const remainingUserHeldSeats = roomSeats.filter(
+            (s, idx) => heldSeatsData[idx] === userId && !seatIds.includes(s.id)
+        );
+
+        if (remainingUserHeldSeats.length > 1 && !areSeatsConnected(remainingUserHeldSeats)) {
+            throw new AppError('Không thể bỏ chọn ghế ở giữa làm tách rời các ghế đang chọn!', 400);
+        }
     }
 
     for (const seatId of seatIds) {
@@ -173,7 +188,7 @@ const unholdSeat = async (showtimeId, seatIdsInput, userId) => {
         // Nhả ghế an toàn qua atomic Lua compare-and-delete
         const isReleased = await redisAdapter.releaseSeat(redisKey, userId);
 
-        if (isReleased) {
+        if (isReleased && !(await seatRepository.isSeatSold(showtimeId, seatId))) {
             eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
                 showtimeId,
                 seatId,
@@ -187,13 +202,37 @@ const unholdSeat = async (showtimeId, seatIdsInput, userId) => {
     };
 };
 
-const getAllBookingsAdmin = async (query) => {
-    const page = parseInt(query.page, 10) || 1;
-    const limit = parseInt(query.limit, 10) || 10;
-    const offset = (page - 1) * limit;
+/**
+ * Giải phóng các ghế trong Redis thuộc về đơn hàng đã bị hủy và phát sự kiện realtime
+ * @param {Object} params
+ * @param {string} params.showtimeId
+ * @param {string[]} params.seatIds
+ * @param {string} params.userId
+ */
+const releaseCancelledBookingSeats = async ({ showtimeId, seatIds = [], userId }) => {
+    for (const seatId of seatIds) {
+        const redisKey = `hold_seat:${showtimeId}:${seatId}`;
+        const isReleased = await redisAdapter.releaseSeat(redisKey, userId);
+        const currentHolder = isReleased ? null : await redisAdapter.get(redisKey);
+
+        if ((isReleased || !currentHolder) && !(await seatRepository.isSeatSold(showtimeId, seatId))) {
+            eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
+                showtimeId,
+                seatId,
+                status: 'available'
+            });
+        }
+    }
+};
+
+const getAllBookingsAdmin = async (query = {}) => {
+    const { page, limit, offset } = parsePagination(query);
 
     let condition = {};
-    if (query.status) condition.status = query.status;
+    const validStatuses = ['pending', 'paid', 'cancelled'];
+    if (query.status && validStatuses.includes(query.status)) {
+        condition.status = query.status;
+    }
 
     return await bookingRepository.findAdminBookings({
         condition,
@@ -207,5 +246,6 @@ module.exports = {
     getShowtimeSeats,
     holdSeat,
     unholdSeat,
+    releaseCancelledBookingSeats,
     getAllBookingsAdmin
 };

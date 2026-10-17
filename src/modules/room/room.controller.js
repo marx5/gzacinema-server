@@ -22,7 +22,7 @@ const getRoomsByCinema = catchAsync(async (req, res) => {
 
 
 const updateRoom = catchAsync(async (req, res) => {
-    const room = await roomService.updateRoom(req.params.roomId, req.body);
+    const room = await roomService.updateRoom(req.params.roomId, req.body, req.params.cinemaId);
     res.status(200).json({
         status: 'success',
         message: 'Room updated successfully',
@@ -31,7 +31,7 @@ const updateRoom = catchAsync(async (req, res) => {
 })
 
 const deleteRoom = catchAsync(async (req, res) => {
-    await roomService.deleteRoom(req.params.roomId);
+    await roomService.deleteRoom(req.params.roomId, req.params.cinemaId);
     res.status(200).json({
         status: 'success',
         message: 'Room deleted successfully'

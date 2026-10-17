@@ -1,4 +1,4 @@
-const { Ticket, Seat } = require('../../models');
+const { Ticket, Seat, Booking, sequelize } = require('../../models');
 const AppError = require('../../core/utils/AppError');
 
 const ticketSeatInclude = [
@@ -10,31 +10,48 @@ const ticketSeatInclude = [
 ];
 
 const checkInticket = async (ticketId) => {
-    const ticket = await Ticket.findByPk(ticketId, {
-        include: ticketSeatInclude
-    });
-    if (!ticket) {
-        throw new AppError('Ticket not found');
+    const t = await sequelize.transaction();
+    try {
+        const ticket = await Ticket.findByPk(ticketId, {
+            include: [
+                ...ticketSeatInclude,
+                {
+                    model: Booking,
+                    as: 'booking',
+                    attributes: ['id', 'status']
+                }
+            ],
+            lock: t.LOCK.UPDATE,
+            transaction: t
+        });
+        if (!ticket) {
+            throw new AppError('Ticket not found', 404);
+        }
+
+        if (!ticket.booking || ticket.booking.status !== 'paid') {
+            throw new AppError('Booking has not been paid', 400);
+        }
+
+        if (ticket.status === 'used') {
+            throw new AppError('Ticket has already been used', 400);
+        }
+
+        if (ticket.status === 'refunded') {
+            throw new AppError('Ticket has already been refunded', 400);
+        }
+
+        ticket.status = 'used';
+        await ticket.save({ transaction: t });
+        await t.commit();
+
+        return ticket;
+    } catch (error) {
+        await t.rollback();
+        throw error;
     }
-
-    if (ticket.status === 'used') {
-        throw new AppError('Ticket has already been used');
-    }
-
-    if (ticket.status === 'refunded') {
-        throw new AppError('Ticket has already been refunded');
-    }
-
-    ticket.status = 'used';
-    await ticket.save();
-
-    const checkedInTicket = await Ticket.findByPk(ticket.id, {
-        include: ticketSeatInclude
-    });
-
-    return checkedInTicket || ticket;
-}
+};
 
 module.exports = {
-    checkInticket
-}
+    checkInticket,
+    checkInTicket: checkInticket
+};

@@ -1,7 +1,15 @@
 const movieRepository = require('./infrastructure/movie.repository');
 const redisAdapter = require('../../infrastructure/cache/redis.adapter');
+const { deleteFromMinio } = require('../../config/minio');
 const AppError = require('../../core/utils/AppError');
+const { parsePagination, formatPaginatedResult } = require('../../core/utils/pagination');
 const { Op } = require('sequelize');
+
+const extractMinioObjectName = (url) => {
+    if (!url || typeof url !== 'string') return null;
+    const match = url.match(/\/(movies\/[^/?#]+)$/);
+    return match ? match[1] : null;
+};
 
 const getVietnamDateString = () => {
     const parts = new Intl.DateTimeFormat('en-GB', {
@@ -46,11 +54,10 @@ const createMovie = async (movieData) => {
     return newMovie;
 };
 
-const getAllMovies = async (query) => {
-    const status = query.status || 'all';
-    const page = parseInt(query.page, 10) || 1;
-    const limit = parseInt(query.limit, 10) || 10;
-    const offset = (page - 1) * limit;
+const getAllMovies = async (query = {}) => {
+    const validStatuses = ['all', 'showing', 'coming_soon'];
+    const status = validStatuses.includes(query.status) ? query.status : 'all';
+    const { page, limit, offset } = parsePagination(query);
     const today = getVietnamDateString();
 
     const statusCachePart = (status === 'showing' || status === 'coming_soon')
@@ -59,9 +66,13 @@ const getAllMovies = async (query) => {
 
     const cacheKey = `cache:movies:${statusCachePart}:${page}:${limit}`;
 
-    const cachedMovies = await redisAdapter.get(cacheKey);
-    if (cachedMovies) {
-        return JSON.parse(cachedMovies);
+    try {
+        const cachedMovies = await redisAdapter.get(cacheKey);
+        if (cachedMovies) {
+            return JSON.parse(cachedMovies);
+        }
+    } catch (err) {
+        console.warn('Redis cache read error:', err);
     }
 
     let condition = {};
@@ -79,21 +90,27 @@ const getAllMovies = async (query) => {
         offset
     });
 
-    const result = {
-        total_items: count,
-        total_pages: Math.ceil(count / limit),
-        current_page: page,
-        movie: rows
-    };
+    const result = formatPaginatedResult({
+        count,
+        rows,
+        page,
+        limit,
+        dataKey: 'movie'
+    });
 
-    await redisAdapter.set(cacheKey, JSON.stringify(result), 3600);
-    await redisAdapter.sadd('movie_cache_index', cacheKey);
-    await redisAdapter.expire('movie_cache_index', 3600);
+    try {
+        await redisAdapter.set(cacheKey, JSON.stringify(result), 3600);
+        await redisAdapter.sadd('movie_cache_index', cacheKey);
+        await redisAdapter.expire('movie_cache_index', 3600);
+    } catch (err) {
+        console.warn('Redis cache write error:', err);
+    }
 
     return result;
 };
 
-const getTopRankingMovies = async (limit = 10) => {
+const getTopRankingMovies = async (limitInput = 10) => {
+    const limit = Math.min(100, Math.max(1, parseInt(limitInput, 10) || 10));
     const cacheKey = `cache:movies:top_ranking:${limit}`;
     try {
         const cached = await redisAdapter.get(cacheKey);
@@ -121,19 +138,46 @@ const getMovieById = async (movieId) => {
 };
 
 const updateMovie = async (movieId, movieData) => {
-    const movie = await movieRepository.update(movieId, movieData);
-    if (!movie) {
+    const existingMovie = await movieRepository.findById(movieId);
+    if (!existingMovie) {
         throw new AppError('Movie not found', 404);
     }
+
+    const oldThumbnail = existingMovie.thumbnail;
+    const movie = await movieRepository.update(movieId, movieData);
+
+    if (movieData.thumbnail && oldThumbnail && movieData.thumbnail !== oldThumbnail) {
+        const oldObjectName = extractMinioObjectName(oldThumbnail);
+        if (oldObjectName) {
+            await deleteFromMinio(oldObjectName);
+        }
+    }
+
     await clearMovieCache();
     return movie;
 };
 
 const deleteMovie = async (movieId) => {
-    const movie = await movieRepository.delete(movieId);
-    if (!movie) {
+    const existingMovie = await movieRepository.findById(movieId);
+    if (!existingMovie) {
         throw new AppError('Movie not found', 404);
     }
+
+    const upcomingShowtimes = await movieRepository.countUpcomingShowtimes(movieId);
+    if (upcomingShowtimes > 0) {
+        throw new AppError('Cannot delete movie with upcoming showtimes', 400);
+    }
+
+    const oldThumbnail = existingMovie.thumbnail;
+    await movieRepository.delete(movieId);
+
+    if (oldThumbnail) {
+        const oldObjectName = extractMinioObjectName(oldThumbnail);
+        if (oldObjectName) {
+            await deleteFromMinio(oldObjectName);
+        }
+    }
+
     await clearMovieCache();
 };
 

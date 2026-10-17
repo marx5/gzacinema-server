@@ -1,5 +1,6 @@
 const seatRepository = require('../booking/infrastructure/seat.repository');
 const bookingRepository = require('../booking/infrastructure/booking.repository');
+const { releaseCancelledBookingSeats } = require('../booking/booking.service');
 const { calculateSeatPrice } = require('../booking/domain/seatPricing');
 const { areSeatsSameType, areSeatsConnected } = require('../booking/domain/seatValidation');
 const redisAdapter = require('../../infrastructure/cache/redis.adapter');
@@ -8,11 +9,45 @@ const eventBus = require('../../core/events/eventBus');
 const DomainEvents = require('../../core/events/domainEvents');
 const AppError = require('../../core/utils/AppError');
 
-const PAYMENT_HOLD_EXTEND_SECONDS = 15 * 60; // 15 phút khi chuyển sang cổng thanh toán
+const PAYMENT_HOLD_EXTEND_SECONDS = 17 * 60; // 17 phút (15 phút VNPay + 2 phút đệm cho IPN)
 
-const createVNPayUrl = async (userId, showtimeId, seatIds, ipAddr) => {
+const createVNPayUrl = async (userId, showtimeId, seatIdsInput, ipAddr) => {
+    const seatIds = [...new Set(Array.isArray(seatIdsInput) ? seatIdsInput : [seatIdsInput])];
+    if (seatIds.length === 0) {
+        throw new AppError('No seats selected', 400);
+    }
+
     const showtime = await seatRepository.findShowtimeWithRoom(showtimeId);
     if (!showtime) throw new AppError('Showtime not found', 404);
+
+    const [seats, soldSeatIds] = await Promise.all([
+        seatRepository.findSeatsByIds(seatIds),
+        seatRepository.findSoldSeatIds(showtimeId)
+    ]);
+
+    if (!seats || seats.length !== seatIds.length) {
+        throw new AppError('Một số ghế không tồn tại!', 404);
+    }
+
+    if (!seats.every((s) => s.room_id === showtime.room_id)) {
+        throw new AppError('Một số ghế không thuộc phòng chiếu của suất chiếu này!', 400);
+    }
+
+    if (!seats.every((s) => !s.status || s.status === 'available')) {
+        throw new AppError('Một số ghế đang bảo trì hoặc không khả dụng!', 400);
+    }
+
+    if (seats.some((s) => soldSeatIds.includes(s.id))) {
+        throw new AppError('Một số ghế đã được bán!', 400);
+    }
+
+    if (!areSeatsSameType(seats)) {
+        throw new AppError('Chỉ được chọn các ghế cùng loại trong một lần đặt!', 400);
+    }
+
+    if (!areSeatsConnected(seats)) {
+        throw new AppError('Các ghế được chọn phải liền kề nhau (trên dưới, trái phải) và không được cách ghế!', 400);
+    }
 
     const redisKeys = seatIds.map((seatId) => `hold_seat:${showtimeId}:${seatId}`);
 
@@ -23,19 +58,6 @@ const createVNPayUrl = async (userId, showtimeId, seatIds, ipAddr) => {
             'Một số ghế đã hết hạn giữ chỗ hoặc không thuộc quyền sở hữu của bạn. Vui lòng chọn lại ghế.',
             400
         );
-    }
-
-    const seats = await seatRepository.findSeatsByIds(seatIds);
-    if (!seats || seats.length === 0) {
-        throw new AppError('No seats selected', 400);
-    }
-
-    if (!areSeatsSameType(seats)) {
-        throw new AppError('Chỉ được chọn các ghế cùng loại trong một lần đặt!', 400);
-    }
-
-    if (!areSeatsConnected(seats)) {
-        throw new AppError('Các ghế được chọn phải liền kề nhau (trên dưới, trái phải) và không được cách ghế!', 400);
     }
 
     let totalAmount = 0;
@@ -145,16 +167,10 @@ const verifyIpn = async (vnp_Params) => {
         const result = await bookingRepository.cancelBookingAndTickets(bookingId);
 
         if (result.success) {
-            // Xóa hold key an toàn trong Redis theo owner token
-            await redisAdapter.releaseMultipleSeats(redisKeys, booking.user_id);
-
-            // Phát sự kiện giải phóng ghế realtime cho người dùng khác
-            seatIds.forEach((seatId) => {
-                eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
-                    showtimeId,
-                    seatId,
-                    status: 'available'
-                });
+            await releaseCancelledBookingSeats({
+                showtimeId,
+                seatIds,
+                userId: booking.user_id
             });
         }
 

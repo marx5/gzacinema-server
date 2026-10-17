@@ -1,31 +1,18 @@
-const { User } = require('../../models');
 const userService = require('./user.service');
 const catchAsync = require('../../core/utils/catchAsync');
 
 const getMyProfile = catchAsync(async (req, res) => {
-    const userId = req.user.id;
-
-    const user = await User.findByPk(userId, {
-        attributes: {
-            exclude: ['password']
-        }
-    });
-    if (!user) {
-        return res.status(404).json({
-            status: 'error',
-            message: 'User not found'
-        })
-    }
+    const user = await userService.getProfile(req.user.id);
 
     res.status(200).json({
         status: 'success',
         data: user
-    })
-})
+    });
+});
 
 const getMyHistory = catchAsync(async (req, res) => {
     const userId = req.user.id;
-    const history = await userService.getUserHistory(userId);
+    const history = await userService.getUserHistory(userId, req.query);
 
     res.status(200).json({
         status: 'success',
@@ -46,4 +33,4 @@ module.exports = {
     getMyProfile,
     getMyHistory,
     updateMyProfile
-}
+};

@@ -29,11 +29,10 @@ const initSeatSocketHandler = (io) => {
     });
 
     // Lắng nghe sự kiện Domain Event thay đổi trạng thái ghế đơn lẻ
-    eventBus.on(DomainEvents.SEAT_STATUS_CHANGED, ({ showtimeId, seatId, status, heldByUserId }) => {
+    eventBus.on(DomainEvents.SEAT_STATUS_CHANGED, ({ showtimeId, seatId, status }) => {
         io.to(showtimeId).emit('seat_status_changed', {
             id: seatId,
-            status,
-            ...(heldByUserId ? { held_by_user: heldByUserId } : {})
+            status
         });
     });
 
