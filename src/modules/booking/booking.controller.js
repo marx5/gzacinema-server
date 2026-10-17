@@ -50,6 +50,24 @@ const unholdSeat = catchAsync(async (req, res) => {
     });
 });
 
+const unholdAllSeats = catchAsync(async (req, res) => {
+    const userId = req.user.id;
+    const { showtimeId } = req.body;
+
+    if (!showtimeId) {
+        throw new AppError('showtimeId là bắt buộc', 400);
+    }
+
+    const result = await bookingService.unholdAllSeatsByUser(showtimeId, userId, {
+        skipIfPendingBooking: true
+    });
+
+    res.status(200).json({
+        status: 'success',
+        data: result
+    });
+});
+
 const getAllForAdmin = catchAsync(async (req, res) => {
     const result = await bookingService.getAllBookingsAdmin(req.query);
 
@@ -59,9 +77,26 @@ const getAllForAdmin = catchAsync(async (req, res) => {
     });
 });
 
+const updateBookingStatus = catchAsync(async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const updated = await bookingService.updateBookingStatusAdmin(id, status);
+
+    res.status(200).json({
+        status: 'success',
+        message: status === 'paid'
+            ? 'Đã duyệt thanh toán đơn đặt vé thành công!'
+            : 'Đã hủy đơn đặt vé và giải phóng ghế thành công!',
+        data: updated
+    });
+});
+
 module.exports = {
     getSeats,
     holdSeat,
     unholdSeat,
-    getAllForAdmin
-};
+    unholdAllSeats,
+    getAllForAdmin,
+    updateBookingStatus
+};

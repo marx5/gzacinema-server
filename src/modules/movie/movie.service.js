@@ -39,7 +39,7 @@ const clearMovieCache = async () => {
 };
 
 const createMovie = async (movieData) => {
-    const { title, genre, description, duration_minutes, release_date, thumbnail, trailer_url } = movieData;
+    const { title, genre, description, duration_minutes, release_date, thumbnail, trailer_url, status } = movieData;
     const newMovie = await movieRepository.create({
         title,
         genre,
@@ -47,7 +47,8 @@ const createMovie = async (movieData) => {
         duration_minutes,
         release_date,
         thumbnail,
-        trailer_url
+        trailer_url,
+        status: ['auto', 'showing', 'coming_soon', 'ended'].includes(status) ? status : 'auto'
     });
 
     await clearMovieCache();
@@ -55,7 +56,7 @@ const createMovie = async (movieData) => {
 };
 
 const getAllMovies = async (query = {}) => {
-    const validStatuses = ['all', 'showing', 'coming_soon'];
+    const validStatuses = ['all', 'showing', 'coming_soon', 'ended'];
     const status = validStatuses.includes(query.status) ? query.status : 'all';
     const { page, limit, offset } = parsePagination(query);
     const today = getVietnamDateString();
@@ -78,9 +79,27 @@ const getAllMovies = async (query = {}) => {
     let condition = {};
 
     if (status === 'showing') {
-        condition.release_date = { [Op.lte]: today };
+        condition = {
+            [Op.or]: [
+                { status: 'showing' },
+                {
+                    status: { [Op.or]: ['auto', null] },
+                    release_date: { [Op.lte]: today }
+                }
+            ]
+        };
     } else if (status === 'coming_soon') {
-        condition.release_date = { [Op.gt]: today };
+        condition = {
+            [Op.or]: [
+                { status: 'coming_soon' },
+                {
+                    status: { [Op.or]: ['auto', null] },
+                    release_date: { [Op.gt]: today }
+                }
+            ]
+        };
+    } else if (status === 'ended') {
+        condition = { status: 'ended' };
     }
 
     const { count, rows } = await movieRepository.findAndCountAll({

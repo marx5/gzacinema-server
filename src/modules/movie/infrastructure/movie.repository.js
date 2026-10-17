@@ -57,6 +57,7 @@ class MovieRepository {
                 m.release_date,
                 m.thumbnail,
                 m.trailer_url,
+                m.status,
                 COUNT(DISTINCT t.id) AS total_tickets,
                 COALESCE(SUM(t.price), 0) AS total_revenue,
                 COALESCE(MIN(b.createdAt), m.createdAt) AS first_revenue_time
@@ -65,7 +66,7 @@ class MovieRepository {
             LEFT JOIN bookings b ON b.showtime_id = s.id AND b.status = 'paid' AND b.deletedAt IS NULL
             LEFT JOIN tickets t ON t.booking_id = b.id AND t.status IN ('valid', 'used') AND t.deletedAt IS NULL
             WHERE m.deletedAt IS NULL
-            GROUP BY m.id, m.title, m.genre, m.description, m.duration_minutes, m.release_date, m.thumbnail, m.trailer_url, m.createdAt
+            GROUP BY m.id, m.title, m.genre, m.description, m.duration_minutes, m.release_date, m.thumbnail, m.trailer_url, m.status, m.createdAt
             ORDER BY 
                 total_tickets DESC,
                 total_revenue DESC,

@@ -169,21 +169,6 @@ const unholdSeat = async (showtimeId, seatIdsInput, userId) => {
         return { message: 'No seats to release' };
     }
 
-    const showtime = await seatRepository.findShowtimeWithRoom(showtimeId);
-    if (showtime) {
-        const roomSeats = await seatRepository.findSeatsByRoomId(showtime.room_id);
-        const allRedisKeys = roomSeats.map(s => `hold_seat:${showtimeId}:${s.id}`);
-        const heldSeatsData = await redisAdapter.mget(allRedisKeys);
-
-        const remainingUserHeldSeats = roomSeats.filter(
-            (s, idx) => heldSeatsData[idx] === userId && !seatIds.includes(s.id)
-        );
-
-        if (remainingUserHeldSeats.length > 1 && !areSeatsConnected(remainingUserHeldSeats)) {
-            throw new AppError('Không thể bỏ chọn ghế ở giữa làm tách rời các ghế đang chọn!', 400);
-        }
-    }
-
     for (const seatId of seatIds) {
         const redisKey = `hold_seat:${showtimeId}:${seatId}`;
         // Nhả ghế an toàn qua atomic Lua compare-and-delete
@@ -201,6 +186,48 @@ const unholdSeat = async (showtimeId, seatIdsInput, userId) => {
     return {
         message: 'Seat released successfully'
     };
+};
+
+/**
+ * Tự động nhả toàn bộ ghế đang giữ tạm của user trong suất chiếu khi rời trang hoặc ngắt kết nối
+ */
+const unholdAllSeatsByUser = async (showtimeId, userId, { skipIfPendingBooking = false } = {}) => {
+    if (!showtimeId || !userId) return { releasedCount: 0 };
+
+    if (skipIfPendingBooking) {
+        const hasPending = await bookingRepository.hasActivePendingBooking(userId, showtimeId);
+        if (hasPending) {
+            return { releasedCount: 0, skipped: true };
+        }
+    }
+
+    const showtime = await seatRepository.findShowtimeWithRoom(showtimeId);
+    if (!showtime) return { releasedCount: 0 };
+
+    const roomSeats = await seatRepository.findSeatsByRoomId(showtime.room_id);
+    if (!roomSeats.length) return { releasedCount: 0 };
+
+    const allRedisKeys = roomSeats.map(s => `hold_seat:${showtimeId}:${s.id}`);
+    const heldSeatsData = await redisAdapter.mget(allRedisKeys);
+
+    const userHeldSeats = roomSeats.filter((s, idx) => heldSeatsData[idx] === String(userId));
+    if (!userHeldSeats.length) return { releasedCount: 0 };
+
+    let releasedCount = 0;
+    for (const seat of userHeldSeats) {
+        const redisKey = `hold_seat:${showtimeId}:${seat.id}`;
+        const isReleased = await redisAdapter.releaseSeat(redisKey, String(userId));
+        if (isReleased && !(await seatRepository.isSeatSold(showtimeId, seat.id))) {
+            releasedCount += 1;
+            eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
+                showtimeId,
+                seatId: seat.id,
+                status: 'available'
+            });
+        }
+    }
+
+    return { releasedCount };
 };
 
 /**
@@ -243,10 +270,66 @@ const getAllBookingsAdmin = async (query = {}) => {
     });
 };
 
+const updateBookingStatusAdmin = async (bookingId, status) => {
+    if (!['paid', 'cancelled'].includes(status)) {
+        throw new AppError('Trạng thái cập nhật không hợp lệ (chỉ hỗ trợ paid hoặc cancelled)', 400);
+    }
+
+    if (status === 'paid') {
+        const result = await bookingRepository.markBookingPaid(bookingId);
+        if (!result.success) {
+            if (result.reason === 'not_found') {
+                throw new AppError('Không tìm thấy đơn đặt vé', 404);
+            }
+            if (result.reason === 'seat_already_paid') {
+                throw new AppError('Ghế trong đơn này đã được bán cho đơn khác. Đơn đã tự động chuyển sang Đã hủy!', 400);
+            }
+            throw new AppError(`Đơn đặt vé đã ở trạng thái "${result.status}"`, 400);
+        }
+
+        const booking = result.booking;
+        const seatIds = (booking.tickets || []).map(t => t.seat_id);
+
+        if (seatIds.length > 0) {
+            const keysToRelease = seatIds.map(id => `hold_seat:${booking.showtime_id}:${id}`);
+            await redisAdapter.releaseMultipleSeats(keysToRelease, booking.user_id);
+
+            eventBus.emit(DomainEvents.SEATS_BOOKED, {
+                showtimeId: booking.showtime_id,
+                seatIds
+            });
+        }
+
+        return booking;
+    }
+
+    // status === 'cancelled'
+    const result = await bookingRepository.cancelBookingAndTickets(bookingId, { allowFromPaid: true });
+    if (!result.success) {
+        if (result.reason === 'not_found') {
+            throw new AppError('Không tìm thấy đơn đặt vé', 404);
+        }
+        throw new AppError('Đơn đặt vé này đã ở trạng thái Đã hủy', 400);
+    }
+
+    const booking = result.booking;
+    const seatIds = (booking.tickets || []).map(t => t.seat_id);
+
+    await releaseCancelledBookingSeats({
+        showtimeId: booking.showtime_id,
+        seatIds,
+        userId: booking.user_id
+    });
+
+    return booking;
+};
+
 module.exports = {
     getShowtimeSeats,
     holdSeat,
     unholdSeat,
+    unholdAllSeatsByUser,
     releaseCancelledBookingSeats,
-    getAllBookingsAdmin
+    getAllBookingsAdmin,
+    updateBookingStatusAdmin
 };

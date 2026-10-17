@@ -30,6 +30,11 @@ module.exports = (sequelize, DataTypes) => {
         trailer_url: {
             type: DataTypes.STRING,
             allowNull: true
+        },
+        status: {
+            type: DataTypes.ENUM('auto', 'showing', 'coming_soon', 'ended'),
+            defaultValue: 'auto',
+            allowNull: false
         }
     }, {
         tableName: 'movies',

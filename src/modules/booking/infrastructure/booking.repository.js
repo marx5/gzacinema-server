@@ -138,7 +138,7 @@ class BookingRepository {
         }
     }
 
-    async cancelBookingAndTickets(bookingId) {
+    async cancelBookingAndTickets(bookingId, { allowFromPaid = false } = {}) {
         const t = await sequelize.transaction();
         try {
             const booking = await Booking.findByPk(bookingId, {
@@ -155,7 +155,8 @@ class BookingRepository {
                 return { success: false, reason: 'not_found' };
             }
 
-            if (booking.status !== 'pending') {
+            const allowedCurrentStatuses = allowFromPaid ? ['pending', 'paid'] : ['pending'];
+            if (!allowedCurrentStatuses.includes(booking.status)) {
                 await t.rollback();
                 return { success: false, reason: 'already_processed', status: booking.status, booking };
             }
@@ -174,6 +175,18 @@ class BookingRepository {
             await t.rollback();
             throw error;
         }
+    }
+
+    async hasActivePendingBooking(userId, showtimeId) {
+        if (!userId || !showtimeId) return false;
+        const count = await Booking.count({
+            where: {
+                user_id: userId,
+                showtime_id: showtimeId,
+                status: 'pending'
+            }
+        });
+        return count > 0;
     }
 
     async findAdminBookings({ condition, limit, offset, page }) {

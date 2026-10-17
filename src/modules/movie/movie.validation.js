@@ -6,8 +6,9 @@ const createMovieSchema = Joi.object({
     description: Joi.string().required(),
     duration_minutes: Joi.number().integer().min(1).required(),
     release_date: Joi.date().iso().required(),
-    trailer_url: Joi.string().uri().allow('', null)
-})
+    trailer_url: Joi.string().uri().allow('', null),
+    status: Joi.string().valid('auto', 'showing', 'coming_soon', 'ended').default('auto')
+});
 
 const updateMovieSchema = Joi.object({
     title: Joi.string(),
@@ -15,7 +16,8 @@ const updateMovieSchema = Joi.object({
     description: Joi.string(),
     duration_minutes: Joi.number().integer().min(1),
     release_date: Joi.date().iso(),
-    trailer_url: Joi.string().uri().allow('', null)
+    trailer_url: Joi.string().uri().allow('', null),
+    status: Joi.string().valid('auto', 'showing', 'coming_soon', 'ended')
 }).min(1);
 
-module.exports = { createMovieSchema, updateMovieSchema }
+module.exports = { createMovieSchema, updateMovieSchema };
