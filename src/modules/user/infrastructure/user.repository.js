@@ -1,4 +1,5 @@
-const { User, Booking, Ticket, Seat, Showtime, Movie, Room } = require('../../../models');
+const { Op } = require('sequelize');
+const { User, Booking, Ticket, Seat, Showtime, Movie, Room, Cinema, sequelize } = require('../../../models');
 
 /**
  * User Repository (Infrastructure Layer)
@@ -25,6 +26,37 @@ class UserRepository {
         return await User.create(data);
     }
 
+    async getUserStats(userId) {
+        const bookings = await Booking.findAll({
+            where: {
+                user_id: userId,
+                status: 'paid'
+            },
+            include: [
+                {
+                    model: Ticket,
+                    as: 'tickets',
+                    attributes: ['id']
+                }
+            ]
+        });
+
+        const totalBookings = bookings.length;
+        let totalTickets = 0;
+        let totalSpent = 0;
+
+        bookings.forEach((b) => {
+            totalSpent += Number(b.total_amount || 0);
+            totalTickets += Array.isArray(b.tickets) ? b.tickets.length : 0;
+        });
+
+        return {
+            total_bookings: totalBookings,
+            total_tickets: totalTickets,
+            total_spent: totalSpent
+        };
+    }
+
     async findUserHistory(userId, { limit, offset }) {
         return await Booking.findAndCountAll({
             where: {
@@ -43,12 +75,19 @@ class UserRepository {
                         {
                             model: Movie,
                             as: 'movie',
-                            attributes: ['title', 'duration_minutes']
+                            attributes: ['title', 'duration_minutes', 'thumbnail']
                         },
                         {
                             model: Room,
                             as: 'room',
-                            attributes: ['name']
+                            attributes: ['name'],
+                            include: [
+                                {
+                                    model: Cinema,
+                                    as: 'cinema',
+                                    attributes: ['name', 'address']
+                                }
+                            ]
                         }
                     ]
                 },
@@ -66,6 +105,70 @@ class UserRepository {
             ]
         });
     }
+
+    async findAllUsers({ role, search, limit, offset }) {
+        const whereClause = {};
+
+        if (role && ['user', 'staff', 'admin'].includes(role)) {
+            whereClause.role = role;
+        }
+
+        if (search && search.trim()) {
+            const keyword = `%${search.trim()}%`;
+            whereClause[Op.or] = [
+                { full_name: { [Op.like]: keyword } },
+                { email: { [Op.like]: keyword } },
+                { phone_number: { [Op.like]: keyword } }
+            ];
+        }
+
+        const { count, rows } = await User.findAndCountAll({
+            where: whereClause,
+            attributes: {
+                exclude: ['password'],
+                include: [
+                    [
+                        sequelize.literal(`(
+                            SELECT COUNT(*)
+                            FROM bookings AS b
+                            WHERE b.user_id = User.id AND b.status = 'paid'
+                        )`),
+                        'booking_count'
+                    ],
+                    [
+                        sequelize.literal(`(
+                            SELECT COALESCE(SUM(b.total_amount), 0)
+                            FROM bookings AS b
+                            WHERE b.user_id = User.id AND b.status = 'paid'
+                        )`),
+                        'total_spent'
+                    ]
+                ]
+            },
+            order: [['createdAt', 'DESC']],
+            limit,
+            offset
+        });
+
+        return { count, rows };
+    }
+
+    async getRoleSummary() {
+        const [totalUsers, adminCount, staffCount, customerCount] = await Promise.all([
+            User.count(),
+            User.count({ where: { role: 'admin' } }),
+            User.count({ where: { role: 'staff' } }),
+            User.count({ where: { role: 'user' } })
+        ]);
+
+        return {
+            total_users: totalUsers,
+            admin_count: adminCount,
+            staff_count: staffCount,
+            customer_count: customerCount
+        };
+    }
 }
 
 module.exports = new UserRepository();
+
