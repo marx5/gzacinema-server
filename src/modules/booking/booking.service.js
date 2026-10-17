@@ -52,7 +52,8 @@ const getShowtimeSeats = async (showtimeId, userId) => {
         showtime_info: {
             movie_id: showtime.movie_id,
             movie_title: showtime.movie?.title || '',
-            poster_url: showtime.movie?.poster_url || '',
+            poster_url: showtime.movie?.thumbnail || '',
+            thumbnail: showtime.movie?.thumbnail || '',
             duration_minutes: showtime.movie?.duration_minutes || null,
             start_time: showtime.start_time,
             room_name: showtime.room?.name || '',

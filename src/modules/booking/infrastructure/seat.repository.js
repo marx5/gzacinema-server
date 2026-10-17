@@ -15,7 +15,7 @@ class SeatRepository {
                 {
                     model: Movie,
                     as: 'movie',
-                    attributes: ['id', 'title', 'poster_url', 'duration_minutes', 'genre']
+                    attributes: ['id', 'title', 'thumbnail', 'duration_minutes', 'genre']
                 }
             ]
         });
