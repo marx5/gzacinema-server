@@ -1,5 +1,6 @@
 const cron = require('node-cron');
-const { sequelize, Booking, Ticket } = require('../../models');
+const { Booking, Ticket } = require('../../models');
+const bookingRepository = require('../../modules/booking/infrastructure/booking.repository');
 const redisAdapter = require('../../infrastructure/cache/redis.adapter');
 const eventBus = require('../events/eventBus');
 const DomainEvents = require('../events/domainEvents');
@@ -9,10 +10,10 @@ const CLEANUP_EXPIRATION_MINUTES = 15;
 
 /**
  * Cron job chạy định kỳ mỗi phút:
- * 1. Tìm và hủy các đơn hàng pending quá 15 phút.
- * 2. Cập nhật vé sang trạng thái 'refunded'.
- * 3. Xóa các key giữ chỗ tương ứng trong Redis nếu còn tồn tại.
- * 4. Phát Domain Event 'SEAT_STATUS_CHANGED' (available) realtime cho client.
+ * 1. Tìm các đơn hàng pending quá 15 phút.
+ * 2. Cập nhật có điều kiện (WHERE status = 'pending') sang 'cancelled' và vé sang 'refunded' bằng transaction & row lock.
+ * 3. Xóa các key giữ chỗ trong Redis an toàn theo đúng owner token (user_id).
+ * 4. Phát Domain Event 'SEAT_STATUS_CHANGED' (available) realtime cho client chỉ với các ghế thực sự được giải phóng.
  */
 const cleanupPendingBookings = () => {
     // Chạy mỗi phút 1 lần vào đúng giây thứ 00 (0 * * * * *)
@@ -20,8 +21,8 @@ const cleanupPendingBookings = () => {
         const expirationThreshold = new Date(Date.now() - CLEANUP_EXPIRATION_MINUTES * 60 * 1000);
 
         try {
-            // 1. Tìm các booking pending quá hạn kèm danh sách vé
-            const expiredBookings = await Booking.findAll({
+            // 1. Tìm danh sách các booking pending quá hạn
+            const expiredCandidates = await Booking.findAll({
                 where: {
                     status: 'pending',
                     createdAt: {
@@ -35,71 +36,42 @@ const cleanupPendingBookings = () => {
                 }]
             });
 
-            if (!expiredBookings || expiredBookings.length === 0) {
+            if (!expiredCandidates || expiredCandidates.length === 0) {
                 return;
             }
 
-            const expiredBookingIds = expiredBookings.map(b => b.id);
-            const seatsToRelease = [];
-            const redisKeysToDelete = [];
+            let cleanedCount = 0;
 
-            expiredBookings.forEach(booking => {
-                const showtimeId = booking.showtime_id;
-                if (booking.tickets && booking.tickets.length > 0) {
-                    booking.tickets.forEach(ticket => {
-                        seatsToRelease.push({
+            for (const candidate of expiredCandidates) {
+                // Hủy booking nguyên tử với Pessimistic Lock & conditional check (status === 'pending')
+                const result = await bookingRepository.cancelBookingAndTickets(candidate.id);
+
+                // Nếu booking thực sự chuyển trạng thái thành công (chưa bị IPN mark paid trước đó)
+                if (result.success) {
+                    cleanedCount++;
+                    const showtimeId = candidate.showtime_id;
+                    const seatIds = (candidate.tickets || []).map(t => t.seat_id);
+                    const redisKeys = seatIds.map(seatId => `hold_seat:${showtimeId}:${seatId}`);
+
+                    // Xóa key Redis an toàn: chỉ xóa nếu key đó vẫn thuộc về đúng user này
+                    await redisAdapter.releaseMultipleSeats(redisKeys, candidate.user_id);
+
+                    // Phát sự kiện nhả ghế realtime
+                    seatIds.forEach(seatId => {
+                        eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
                             showtimeId,
-                            seatId: ticket.seat_id
+                            seatId,
+                            status: 'available'
                         });
-                        redisKeysToDelete.push(`hold_seat:${showtimeId}:${ticket.seat_id}`);
                     });
                 }
-            });
-
-            // 2. Cập nhật Database trong Transaction
-            const t = await sequelize.transaction();
-            try {
-                await Booking.update(
-                    { status: 'cancelled' },
-                    {
-                        where: { id: expiredBookingIds },
-                        transaction: t
-                    }
-                );
-
-                await Ticket.update(
-                    { status: 'refunded' },
-                    {
-                        where: { booking_id: expiredBookingIds },
-                        transaction: t
-                    }
-                );
-
-                await t.commit();
-            } catch (dbError) {
-                await t.rollback();
-                throw dbError;
             }
 
-            // 3. Xóa các key giữ chỗ còn lại trong Redis
-            if (redisKeysToDelete.length > 0) {
-                await redisAdapter.del(redisKeysToDelete);
+            if (cleanedCount > 0) {
+                console.log(`[CRON] Đã dọn dẹp thành công ${cleanedCount} đơn hàng pending quá hạn và giải phóng ghế an toàn.`);
             }
-
-            // 4. Phát sự kiện realtime nhả ghế cho người dùng
-            seatsToRelease.forEach(({ showtimeId, seatId }) => {
-                eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
-                    showtimeId,
-                    seatId,
-                    status: 'available'
-                });
-            });
-
-            console.log(
-                `[CRON] Đã dọn dẹp ${expiredBookings.length} đơn hàng quá hạn, hủy ${seatsToRelease.length} vé, xóa ${redisKeysToDelete.length} key Redis và phát sự kiện nhả ghế.`
-            );
         } catch (error) {
-            console.error('[CRON] Lỗi chạy tác vụ dọn dẹp đơn hàng và key hết hạn:', error);
+            console.error('[CRON] Lỗi chạy tác vụ dọn dẹp đơn hàng quá hạn:', error);
         }
     });
 };

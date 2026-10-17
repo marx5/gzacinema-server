@@ -14,15 +14,15 @@ const createVNPayUrl = async (userId, showtimeId, seatIds, ipAddr) => {
     const showtime = await seatRepository.findShowtimeWithRoom(showtimeId);
     if (!showtime) throw new AppError('Showtime not found', 404);
 
-    // Kiểm tra tất cả ghế có đang được giữ bởi chính user không
-    for (const seatId of seatIds) {
-        const holder = await redisAdapter.get(`hold_seat:${showtimeId}:${seatId}`);
-        if (holder !== userId) {
-            throw new AppError(
-                `Seat ${seatId} is not held by you or the hold has expired. Please hold the seat again before checkout.`,
-                400
-            );
-        }
+    const redisKeys = seatIds.map((seatId) => `hold_seat:${showtimeId}:${seatId}`);
+
+    // Kiểm tra và gia hạn giữ ghế nguyên tử (All-or-Nothing) cho đúng userId bằng Lua script
+    const isAllExtended = await redisAdapter.extendMultipleSeats(redisKeys, userId, PAYMENT_HOLD_EXTEND_SECONDS);
+    if (!isAllExtended) {
+        throw new AppError(
+            'Một số ghế đã hết hạn giữ chỗ hoặc không thuộc quyền sở hữu của bạn. Vui lòng chọn lại ghế.',
+            400
+        );
     }
 
     const seats = await seatRepository.findSeatsByIds(seatIds);
@@ -59,11 +59,6 @@ const createVNPayUrl = async (userId, showtimeId, seatIds, ipAddr) => {
             totalAmount,
             ticketsData: ticketDataToInsert
         });
-
-        // Gia hạn giữ ghế trong Redis khi user chuyển sang trang VNPay
-        for (const seatId of seatIds) {
-            await redisAdapter.expire(`hold_seat:${showtimeId}:${seatId}`, PAYMENT_HOLD_EXTEND_SECONDS);
-        }
 
         const paymentUrl = vnpayGateway.createPaymentUrl({
             bookingId: newBooking.id,
@@ -108,20 +103,35 @@ const verifyIpn = async (vnp_Params) => {
         };
     }
 
-    if (booking.status !== 'pending') {
-        return {
-            RspCode: '02',
-            Message: 'Order already confirmed'
-        };
-    }
-
     const showtimeId = booking.showtime_id;
-    const seatIds = booking.tickets.map((t) => t.seat_id);
-    const redisKeysToDelete = seatIds.map((seatId) => `hold_seat:${showtimeId}:${seatId}`);
+    const seatIds = (booking.tickets || []).map((t) => t.seat_id);
+    const redisKeys = seatIds.map((seatId) => `hold_seat:${showtimeId}:${seatId}`);
 
     if (rspCode === '00' && transactionStatus === '00') {
-        await bookingRepository.markBookingPaid(booking);
-        await redisAdapter.del(redisKeysToDelete);
+        // Cập nhật DB nguyên tử với pessimistic lock và kiểm tra double-booking
+        const result = await bookingRepository.markBookingPaid(bookingId);
+
+        if (!result.success) {
+            if (result.reason === 'already_processed') {
+                return {
+                    RspCode: '02',
+                    Message: 'Order already confirmed'
+                };
+            }
+            if (result.reason === 'seat_already_paid') {
+                return {
+                    RspCode: '02',
+                    Message: 'Seat already booked and paid by another user'
+                };
+            }
+            return {
+                RspCode: '01',
+                Message: 'Order not found'
+            };
+        }
+
+        // Xóa hold key an toàn chỉ khi key đó thực sự thuộc về user của booking này
+        await redisAdapter.releaseMultipleSeats(redisKeys, booking.user_id);
 
         // Phát Domain Event cho WebSockets Adapter xử lý
         eventBus.emit(DomainEvents.SEATS_BOOKED, {
@@ -131,13 +141,23 @@ const verifyIpn = async (vnp_Params) => {
 
         return { RspCode: '00', Message: 'Confirm Success' };
     } else {
-        try {
-            await bookingRepository.cancelBookingAndTickets(bookingId, booking);
-        } catch (error) {
-            // Log nội bộ nếu cần
+        // Hủy booking trong DB một cách nguyên tử
+        const result = await bookingRepository.cancelBookingAndTickets(bookingId);
+
+        if (result.success) {
+            // Xóa hold key an toàn trong Redis theo owner token
+            await redisAdapter.releaseMultipleSeats(redisKeys, booking.user_id);
+
+            // Phát sự kiện giải phóng ghế realtime cho người dùng khác
+            seatIds.forEach((seatId) => {
+                eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
+                    showtimeId,
+                    seatId,
+                    status: 'available'
+                });
+            });
         }
 
-        await redisAdapter.del(redisKeysToDelete);
         return { RspCode: '00', Message: 'Payment failed, order and tickets cancelled' };
     }
 };

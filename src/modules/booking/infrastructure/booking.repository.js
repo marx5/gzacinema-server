@@ -38,15 +38,91 @@ class BookingRepository {
         });
     }
 
-    async markBookingPaid(booking) {
-        booking.status = 'paid';
-        await booking.save();
-        return booking;
-    }
-
-    async cancelBookingAndTickets(bookingId, booking) {
+    async markBookingPaid(bookingId) {
         const t = await sequelize.transaction();
         try {
+            const booking = await Booking.findByPk(bookingId, {
+                lock: t.LOCK.UPDATE,
+                transaction: t,
+                include: [{
+                    model: Ticket,
+                    as: 'tickets'
+                }]
+            });
+
+            if (!booking) {
+                await t.rollback();
+                return { success: false, reason: 'not_found' };
+            }
+
+            if (booking.status !== 'pending') {
+                await t.rollback();
+                return { success: false, reason: 'already_processed', status: booking.status, booking };
+            }
+
+            // DB Invariant Protection: Kiểm tra xem có vé nào của các ghế này trong cùng showtime đã được thanh toán (paid) bởi booking khác không
+            const seatIds = (booking.tickets || []).map(t => t.seat_id);
+            if (seatIds.length > 0) {
+                const existingPaidTicket = await Ticket.findOne({
+                    where: {
+                        seat_id: seatIds,
+                        status: 'valid'
+                    },
+                    include: [{
+                        model: Booking,
+                        as: 'booking',
+                        where: {
+                            showtime_id: booking.showtime_id,
+                            status: 'paid'
+                        }
+                    }],
+                    transaction: t
+                });
+
+                if (existingPaidTicket) {
+                    await t.rollback();
+                    return { success: false, reason: 'seat_already_paid', booking };
+                }
+            }
+
+            booking.status = 'paid';
+            await booking.save({ transaction: t });
+
+            await Ticket.update(
+                { status: 'valid' },
+                { where: { booking_id: booking.id }, transaction: t }
+            );
+
+            await t.commit();
+            return { success: true, booking };
+        } catch (error) {
+            await t.rollback();
+            throw error;
+        }
+    }
+
+    async cancelBookingAndTickets(bookingId) {
+        const t = await sequelize.transaction();
+        try {
+            const booking = await Booking.findByPk(bookingId, {
+                lock: t.LOCK.UPDATE,
+                transaction: t,
+                include: [{
+                    model: Ticket,
+                    as: 'tickets'
+                }]
+            });
+
+            if (!booking) {
+                await t.rollback();
+                return { success: false, reason: 'not_found' };
+            }
+
+            if (booking.status !== 'pending') {
+                await t.rollback();
+                return { success: false, reason: 'already_processed', status: booking.status, booking };
+            }
+
             booking.status = 'cancelled';
             await booking.save({ transaction: t });
 
@@ -56,6 +132,7 @@ class BookingRepository {
             );
 
             await t.commit();
+            return { success: true, booking };
         } catch (error) {
             await t.rollback();
             throw error;

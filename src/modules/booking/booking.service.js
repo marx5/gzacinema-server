@@ -116,15 +116,15 @@ const holdSeat = async (showtimeId, seatIdsInput, userId) => {
     try {
         for (const seat of targetSeats) {
             const redisKey = `hold_seat:${showtimeId}:${seat.id}`;
-            const existingHolder = await redisAdapter.get(redisKey);
-
-            if (existingHolder === userId) {
-                // Nếu chính user này đang giữ, gia hạn TTL
-                await redisAdapter.expire(redisKey, HOLD_DURATION_SECONDS);
+            
+            // Cố gắng gia hạn nếu chính user này đang giữ ghế
+            const isExtended = await redisAdapter.extendSeat(redisKey, userId, HOLD_DURATION_SECONDS);
+            
+            if (isExtended) {
                 successfullyHeldSeats.push(seat);
             } else {
-                // Cố gắng giữ ghế nguyên tử bằng SET NX (chỉ thành công nếu key chưa tồn tại)
-                const isAcquired = await redisAdapter.setNx(redisKey, userId, HOLD_DURATION_SECONDS);
+                // Thử giữ ghế mới nguyên tử bằng SET NX EX
+                const isAcquired = await redisAdapter.acquireSeat(redisKey, userId, HOLD_DURATION_SECONDS);
                 if (!isAcquired) {
                     throw new AppError(
                         `Ghế ${seat.row_letter}${seat.seat_number} vừa được người khác giữ trước một khoảnh khắc!`,
@@ -145,13 +145,10 @@ const holdSeat = async (showtimeId, seatIdsInput, userId) => {
             });
         }
     } catch (error) {
-        // Rollback: Giải phóng các ghế đã lỡ giữ trong lần request này nếu có 1 ghế thất bại
+        // Rollback an toàn: Sử dụng atomic Lua compare-and-delete (chỉ giải phóng ghế nếu key vẫn thuộc đúng userId này)
         for (const seat of successfullyHeldSeats) {
             const redisKey = `hold_seat:${showtimeId}:${seat.id}`;
-            const holder = await redisAdapter.get(redisKey);
-            if (holder === userId) {
-                await redisAdapter.del(redisKey);
-            }
+            await redisAdapter.releaseSeat(redisKey, userId);
         }
         throw error;
     }
@@ -173,11 +170,10 @@ const unholdSeat = async (showtimeId, seatIdsInput, userId) => {
 
     for (const seatId of seatIds) {
         const redisKey = `hold_seat:${showtimeId}:${seatId}`;
-        const existingHold = await redisAdapter.get(redisKey);
+        // Nhả ghế an toàn qua atomic Lua compare-and-delete
+        const isReleased = await redisAdapter.releaseSeat(redisKey, userId);
 
-        if (existingHold === userId) {
-            await redisAdapter.del(redisKey);
-
+        if (isReleased) {
             eventBus.emit(DomainEvents.SEAT_STATUS_CHANGED, {
                 showtimeId,
                 seatId,
